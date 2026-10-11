@@ -106,8 +106,8 @@ const val echoAvatarUrl = "https://static.wixstatic.com/media/0cbe0e_3514bb08971
 
 // Game Button Image Addresses (Replace with your actual image URLs)
 const val gameButton1Url = "https://via.placeholder.com/600x200/003859/FFFFFF?text=Match+The+Pairs"
-const val gameButton2Url = "https://via.placeholder.com/600x200/0066FF/FFFFFF?text=Color+Stroop+Test"
-const val gameButton3Url = "https://via.placeholder.com/600x200/003859/FFFFFF?text=Aim+Trainer"
+const val gameButton2Url = "https://static.wixstatic.com/media/0cbe0e_1837ae34cf04480f9131551aac296341~mv2.png/v1/fill/w_780,h_392,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/0cbe0e_1837ae34cf04480f9131551aac296341~mv2.png"
+const val gameButton3Url = "https://static.wixstatic.com/media/0cbe0e_1837ae34cf04480f9131551aac296341~mv2.png/v1/fill/w_780,h_392,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/0cbe0e_1837ae34cf04480f9131551aac296341~mv2.png"
 const val gameButton4Url = "https://via.placeholder.com/600x200/0066FF/FFFFFF?text=Sequence+Memory"
 const val gameButton5Url = "https://via.placeholder.com/600x200/003859/FFFFFF?text=Word+Puzzle"
 
