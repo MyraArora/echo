@@ -53,6 +53,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -73,12 +74,7 @@ import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.asRequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONArray
 import org.json.JSONObject
@@ -94,7 +90,7 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.math.sin
 
-// Colors matching design
+// Colors matching the design
 val EchoBlueHeader = Color(0xFF0066FF)
 val EchoDarkBlueButton = Color(0xFF003859)
 val EchoInputFieldBorder = Color(0xFF0B3C4D)
@@ -103,17 +99,22 @@ val EchoUserBubbleColor = Color(0xFF003859)
 val EchoAiBubbleColor = Color(0xFFE8F1FF)
 val EchoBgLight = Color(0xFFF4F7FF)
 
-// Placeholders
+// Image URL Placeholders
 const val promptQuestionBgUrl = "https://static.wixstatic.com/media/0cbe0e_13594cad56364c2eb39a63e87e8b3ca0~mv2.png/v1/fill/w_412,h_890,al_c,q_90,usm_0.66_1.00_0.01,enc_avif,quality_auto/Echo%20Mobile%20UI%20(12).png"
 const val headerRobotImageUrl = "https://static.wixstatic.com/media/0cbe0e_3514bb0897164745bfd2ee85db385309~mv2.png/v1/fill/w_1200,h_676,al_c,q_90,usm_0.66_1.00_0.01,enc_avif,quality_auto/I%20see%20it%20I%20like%20it%20I%20want%20it%20I%20got%20it.png"
 const val echoAvatarUrl = "https://static.wixstatic.com/media/0cbe0e_3514bb0897164745bfd2ee85db385309~mv2.png/v1/fill/w_1200,h_676,al_c,q_90,usm_0.66_1.00_0.01,enc_avif,quality_auto/I%20see%20it%20I%20like%20it%20I%20want%20it%20I%20got%20it.png"
 
+// Game Button Image Addresses (Replace with your actual image URLs)
+const val gameButton1Url = "https://via.placeholder.com/600x200/003859/FFFFFF?text=Match+The+Pairs"
+const val gameButton2Url = "https://via.placeholder.com/600x200/0066FF/FFFFFF?text=Color+Stroop+Test"
+const val gameButton3Url = "https://via.placeholder.com/600x200/003859/FFFFFF?text=Aim+Trainer"
+const val gameButton4Url = "https://via.placeholder.com/600x200/0066FF/FFFFFF?text=Sequence+Memory"
+const val gameButton5Url = "https://via.placeholder.com/600x200/003859/FFFFFF?text=Word+Puzzle"
+
 // CONFIGURATIONS
 const val GROQ_API_KEY = BuildConfig.GROQ_API_KEY
-private const val GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
-private const val GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
-private const val GROQ_CHAT_MODEL = "openai/gpt-oss-120b"
-private const val GROQ_STT_MODEL = "whisper-large-v3-turbo"
+private const val GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+private const val GROQ_MODEL = "openai/gpt-oss-120b"
 
 // RETROFIT PIPELINE DATA MODELS & CLIENT
 data class ProcessSessionRequest(
@@ -143,7 +144,7 @@ object NetworkClient {
         level = HttpLoggingInterceptor.Level.BODY
     }
 
-    val okHttpClient = OkHttpClient.Builder()
+    private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -200,9 +201,16 @@ fun EchoNavigationFlow() {
             onNavigateToSignIn = { flowStep = 3 },
             onSignUpSuccess = { flowStep = 5 }
         )
-        5 -> EchoHomeScreen(onOpenChat = { flowStep = 6 })
+        5 -> EchoHomeScreen(
+            onOpenChat = { flowStep = 6 },
+            onOpenGames = { flowStep = 7 }
+        )
         6 -> EchoChatScreen(onBackClicked = { flowStep = 5 })
-        else -> EchoHomeScreen(onOpenChat = { flowStep = 6 })
+        7 -> EchoGameScreen(onBackClicked = { flowStep = 5 })
+        else -> EchoHomeScreen(
+            onOpenChat = { flowStep = 6 },
+            onOpenGames = { flowStep = 7 }
+        )
     }
 }
 
@@ -358,10 +366,10 @@ fun SignInScreen(onNavigateToSignUp: () -> Unit, onLoginSuccess: () -> Unit) {
                     .addOnCompleteListener { task ->
                         isLoading = false
                         if (task.isSuccessful) {
-                            Toast.makeText(context, "Welcome back, we missed you!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Welcome back!", Toast.LENGTH_SHORT).show()
                             onLoginSuccess()
                         } else {
-                            Toast.makeText(context, "Error ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Error: ${task.exception?.message}", Toast.LENGTH_LONG).show()
                         }
                     }
             },
@@ -372,7 +380,7 @@ fun SignInScreen(onNavigateToSignUp: () -> Unit, onLoginSuccess: () -> Unit) {
             colors = ButtonDefaults.buttonColors(containerColor = EchoDarkBlueButton),
             enabled = !isLoading
         ) {
-            Text(text = if (isLoading) "Signing in" else "Sign in", fontSize = 18.sp, color = Color.White)
+            Text(text = if (isLoading) "Signing in..." else "Sign in", fontSize = 18.sp, color = Color.White)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -610,7 +618,10 @@ fun TermsCheckbox(isAgreed: Boolean, onCheckedChange: (Boolean) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EchoHomeScreen(onOpenChat: () -> Unit = {}) {
+fun EchoHomeScreen(
+    onOpenChat: () -> Unit = {},
+    onOpenGames: () -> Unit = {}
+) {
     val context = LocalContext.current
     var userName by remember { mutableStateOf("User") }
 
@@ -671,7 +682,7 @@ fun EchoHomeScreen(onOpenChat: () -> Unit = {}) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             HeaderIconButtonUrl(
                                 imageUrl = "https://cdn-icons-png.flaticon.com/512/1436/1436627.png",
-                                onClick = { Toast.makeText(context, "Conversation History Clicked", Toast.LENGTH_SHORT).show() }
+                                onClick = { Toast.makeText(context, "History Clicked", Toast.LENGTH_SHORT).show() }
                             )
                             HeaderIconButtonUrl(
                                 imageUrl = "https://cdn-icons-png.flaticon.com/512/1827/1827301.png",
@@ -739,7 +750,7 @@ fun EchoHomeScreen(onOpenChat: () -> Unit = {}) {
                             modifier = Modifier.weight(1f),
                             iconUrl = "https://cdn-icons-png.flaticon.com/512/7708/7708371.png",
                             title = "Games",
-                            onClick = { Toast.makeText(context, "Games Clicked", Toast.LENGTH_SHORT).show() }
+                            onClick = { onOpenGames() }
                         )
                         FeatureGridItemUrl(
                             modifier = Modifier.weight(1f),
@@ -813,7 +824,7 @@ fun EchoHomeScreen(onOpenChat: () -> Unit = {}) {
 }
 
 // ==========================================
-// SCREEN 5: CHAT & VOICE SYSTEM WITH DIRECT GROQ WHISPER STT & RENDER BACKEND
+// SCREEN 5: CHAT & VOICE SYSTEM WITH LOW-LATENCY MEDIARECORDER & RENDER BACKEND
 // ==========================================
 
 enum class ChatMode { CHAT, VOICE }
@@ -850,7 +861,6 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
 
     val listState = rememberLazyListState()
 
-    // --- MEDIARECORDER AUDIO CAPTURE ---
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var currentAudioFile by remember { mutableStateOf<File?>(null) }
 
@@ -890,7 +900,6 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
         }
     }
 
-    // --- NATIVE TEXT TO SPEECH ---
     var ttsEngine by remember { mutableStateOf<TextToSpeech?>(null) }
     var ttsReady by remember { mutableStateOf(false) }
 
@@ -939,7 +948,6 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
         tts.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, "EchoResponse")
     }
 
-    // Load User Facts from Firestore
     LaunchedEffect(Unit) {
         val uid = FirebaseAuth.getInstance().currentUser?.uid
         if (uid != null) {
@@ -978,7 +986,7 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
                     $fullConversation
                 """.trimIndent()
 
-                connection = (URL(GROQ_CHAT_URL).openConnection() as HttpURLConnection).apply {
+                connection = (URL(GROQ_API_URL).openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     connectTimeout = 15000
                     readTimeout = 30000
@@ -988,7 +996,7 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
                 }
 
                 val payload = JSONObject().apply {
-                    put("model", GROQ_CHAT_MODEL)
+                    put("model", GROQ_MODEL)
                     put("messages", JSONArray().apply {
                         put(JSONObject().put("role", "system").put("content",
                             "Extract stable user facts only when explicitly stated. Return bullet points beginning with * or exactly NONE. Do not infer sensitive traits."))
@@ -1043,7 +1051,7 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
         scope.launch(Dispatchers.IO) {
             var connection: HttpURLConnection? = null
             try {
-                connection = (URL(GROQ_CHAT_URL).openConnection() as HttpURLConnection).apply {
+                connection = (URL(GROQ_API_URL).openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     connectTimeout = 15000
                     readTimeout = 60000
@@ -1073,7 +1081,7 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
                 }
 
                 val payload = JSONObject().apply {
-                    put("model", GROQ_CHAT_MODEL)
+                    put("model", GROQ_MODEL)
                     put("messages", apiMessages)
                     put("temperature", 0.7)
                     put("max_tokens", 300)
@@ -1100,7 +1108,7 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
                     }
                 }
             } catch (e: Exception) {
-                android.util.Log.e("EchoGroq", "Groq chat request failed", e)
+                android.util.Log.e("EchoGroq", "Groq request failed", e)
             } finally {
                 connection?.disconnect()
                 withContext(Dispatchers.Main) { isGeneratingResponse = false }
@@ -1108,101 +1116,59 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
         }
     }
 
-    // --- DIRECT GROQ STT WHISPER-LARGE-V3-TURBO TRANSCRIPTION ---
-    suspend fun transcribeAudioWithGroq(audioFile: File): String? = withContext(Dispatchers.IO) {
-        try {
-            val requestBody = MultipartBody.Builder()
-                .setType(MultipartBody.FORM)
-                .addFormDataPart("model", GROQ_STT_MODEL)
-                .addFormDataPart(
-                    "file",
-                    audioFile.name,
-                    audioFile.asRequestBody("audio/m4a".toMediaTypeOrNull())
-                )
-                .build()
-
-            val request = Request.Builder()
-                .url(GROQ_STT_URL)
-                .addHeader("Authorization", "Bearer $GROQ_API_KEY")
-                .post(requestBody)
-                .build()
-
-            val response = NetworkClient.okHttpClient.newCall(request).execute()
-            val responseText = response.body?.string().orEmpty()
-
-            if (response.isSuccessful && responseText.isNotBlank()) {
-                val json = JSONObject(responseText)
-                json.optString("text", "").trim()
-            } else {
-                android.util.Log.e("EchoGroqSTT", "Groq STT error: $responseText")
-                null
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("EchoGroqSTT", "Error during Groq STT call", e)
-            null
-        }
-    }
-
-    // --- TRIGGER BACKEND PIPELINE (UPLOAD AUDIO & STUB RECORD) ---
-    fun processVoiceSession(audioFile: File) {
+    fun triggerBackendPipeline(audioFile: File) {
         val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
         val sessionId = "session_${System.currentTimeMillis()}"
         val gcsPath = "users/$userId/sessions/$sessionId/audio.m4a"
 
-        scope.launch(Dispatchers.IO) {
-            // 1. Run direct Kotlin Groq Whisper STT
-            val transcript = transcribeAudioWithGroq(audioFile) ?: ""
+        val sessionRef = FirebaseFirestore.getInstance()
+            .collection("users").document(userId)
+            .collection("sessions").document(sessionId)
 
-            withContext(Dispatchers.Main) {
-                if (transcript.isNotBlank()) {
-                    messages.add(Message(text = transcript, isUser = true, timestamp = "Just now"))
-                    generateGroqResponse(transcript)
-                } else {
-                    Toast.makeText(context, "Could not process audio. Try again.", Toast.LENGTH_SHORT).show()
+        val initialSessionData = hashMapOf(
+            "timestamp" to FieldValue.serverTimestamp(),
+            "status" to "PENDING",
+            "audio_gcs_path" to gcsPath
+        )
+
+        sessionRef.set(initialSessionData).addOnSuccessListener {
+            val storageRef = FirebaseStorage.getInstance().reference.child(gcsPath)
+            storageRef.putFile(Uri.fromFile(audioFile)).addOnSuccessListener {
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val request = ProcessSessionRequest(
+                            user_id = userId,
+                            session_id = sessionId,
+                            bucket_name = "echo-audio-bucket",
+                            gcs_audio_path = gcsPath,
+                            transcript = null
+                        )
+                        val response = NetworkClient.apiService.processSession(request)
+                        if (response.isSuccessful) {
+                            android.util.Log.d("EchoPipeline", "Successfully triggered backend for session $sessionId")
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("EchoPipeline", "Failed to call Render API", e)
+                    }
                 }
             }
+        }
 
-            // 2. Persist initial Firestore session stub
-            val sessionRef = FirebaseFirestore.getInstance()
-                .collection("users").document(userId)
-                .collection("sessions").document(sessionId)
+        sessionRef.addSnapshotListener { snapshot, error ->
+            if (error != null || snapshot == null) return@addSnapshotListener
+            val transcript = snapshot.getString("raw_transcript")
+            val status = snapshot.getString("status")
 
-            val initialSessionData = hashMapOf(
-                "timestamp" to FieldValue.serverTimestamp(),
-                "status" to "PENDING",
-                "audio_gcs_path" to gcsPath,
-                "raw_transcript" to transcript
-            )
-
-            sessionRef.set(initialSessionData).addOnSuccessListener {
-                // 3. Upload Audio to Firebase Storage
-                val storageRef = FirebaseStorage.getInstance().reference.child(gcsPath)
-                storageRef.putFile(Uri.fromFile(audioFile)).addOnSuccessListener {
-
-                    // 4. Trigger Render Backend Pipeline with supplied transcript
-                    scope.launch(Dispatchers.IO) {
-                        try {
-                            val request = ProcessSessionRequest(
-                                user_id = userId,
-                                session_id = sessionId,
-                                bucket_name = "echo-audio-bucket",
-                                gcs_audio_path = gcsPath,
-                                transcript = transcript
-                            )
-                            val response = NetworkClient.apiService.processSession(request)
-                            if (response.isSuccessful) {
-                                android.util.Log.d("EchoPipeline", "Triggered backend for session $sessionId")
-                            }
-                        } catch (e: Exception) {
-                            android.util.Log.e("EchoPipeline", "Failed to call Render API", e)
-                        }
-                    }
+            if (!transcript.isNullOrBlank() && status == "COMPLETED") {
+                val lastMsg = messages.lastOrNull()
+                if (lastMsg == null || lastMsg.text != transcript) {
+                    messages.add(Message(text = transcript, isUser = true, timestamp = "Just now"))
+                    generateGroqResponse(transcript)
                 }
             }
         }
     }
 
-    // --- PERMISSIONS LAUNCHER ---
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -1218,15 +1184,13 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
 
     fun handleRecordButtonClick() {
         if (isRecordingAudio) {
-            // Stop recording
             isRecordingAudio = false
             val audioFile = stopAudioRecording()
             if (audioFile != null && audioFile.exists()) {
-                Toast.makeText(context, "Listening...", Toast.LENGTH_SHORT).show()
-                processVoiceSession(audioFile)
+                Toast.makeText(context, "Processing audio...", Toast.LENGTH_SHORT).show()
+                triggerBackendPipeline(audioFile)
             }
         } else {
-            // Start recording
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                 ttsEngine?.stop()
                 isSpeaking = false
@@ -1381,6 +1345,169 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
     }
 }
 
+// ==========================================
+// SCREEN 6: GAME SCREEN MENU
+// ==========================================
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EchoGameScreen(onBackClicked: () -> Unit) {
+    val context = LocalContext.current
+    var userName by remember { mutableStateOf("User") }
+    val configuration = LocalConfiguration.current
+    val buttonHeight = (configuration.screenHeightDp * 0.25f).dp
+
+    LaunchedEffect(Unit) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid != null) {
+            FirebaseFirestore.getInstance().collection("users").document(uid)
+                .get()
+                .addOnSuccessListener { document ->
+                    if (document != null && document.exists()) {
+                        val fetchedName = document.getString("fullName")
+                        if (!fetchedName.isNullOrEmpty()) {
+                            userName = fetchedName
+                        }
+                    }
+                }
+        }
+    }
+
+    val gameButtons = listOf(
+        Pair("Match The Pairs", gameButton1Url),
+        Pair("Color Stroop Test", gameButton2Url),
+        Pair("Aim Trainer", gameButton3Url),
+        Pair("Sequence Memory", gameButton4Url),
+        Pair("Word Puzzle", gameButton5Url)
+    )
+
+    Scaffold(
+        containerColor = EchoBgLight
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            // Top Bar Matching Home Screen Specs
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        color = EchoBlueHeader,
+                        shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
+                    )
+                    .padding(20.dp)
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = onBackClicked) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = Color.White
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Column {
+                                Text(
+                                    text = "Welcome back,",
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = userName,
+                                    color = Color.White,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            HeaderIconButtonUrl(
+                                imageUrl = "https://cdn-icons-png.flaticon.com/512/1436/1436627.png",
+                                onClick = { Toast.makeText(context, "History Clicked", Toast.LENGTH_SHORT).show() }
+                            )
+                            HeaderIconButtonUrl(
+                                imageUrl = "https://cdn-icons-png.flaticon.com/512/1827/1827301.png",
+                                onClick = { Toast.makeText(context, "Notifications Clicked", Toast.LENGTH_SHORT).show() }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = "",
+                            onValueChange = {},
+                            placeholder = { Text("Search Games", color = Color.Gray) },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color.Gray) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp),
+                            shape = RoundedCornerShape(25.dp),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            ),
+                            singleLine = true,
+                            enabled = false
+                        )
+
+                        HeaderIconButtonUrl(
+                            imageUrl = "https://cdn-icons-png.magnific.com/256/771/771203.png?semt=ais_white_label",
+                            onClick = { Toast.makeText(context, "Settings Clicked", Toast.LENGTH_SHORT).show() }
+                        )
+                    }
+                }
+            }
+
+            // Scrollable Menu List with 5 PNG Action Buttons
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                items(gameButtons) { (gameName, imageUrl) ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(buttonHeight)
+                            .clickable {
+                                Toast.makeText(context, "Starting $gameName...", Toast.LENGTH_SHORT).show()
+                            },
+                        shape = RoundedCornerShape(20.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                    ) {
+                        AsyncImage(
+                            model = imageUrl,
+                            contentDescription = gameName,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// REUSABLE COMPONENTS & UTILITIES
+
 @Composable
 fun ModeToggleBar(
     activeMode: ChatMode,
@@ -1501,7 +1628,7 @@ fun ChatInputBar(
             ) {
                 Icon(
                     imageVector = Icons.Default.Mic,
-                    contentDescription = "Switch to voice mode",
+                    contentDescription = "Switch to Voice",
                     tint = EchoDarkBlueButton
                 )
             }
