@@ -18,9 +18,14 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -38,6 +43,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.outlined.Email
@@ -53,6 +59,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -73,6 +80,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -94,7 +102,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.math.hypot
 import kotlin.math.sin
+import kotlin.random.Random
 
 // Colors matching design
 val EchoBlueHeader = Color(0xFF0066FF)
@@ -215,7 +225,19 @@ fun EchoNavigationFlow() {
             onOpenGames = { flowStep = 7 }
         )
         6 -> EchoChatScreen(onBackClicked = { flowStep = 5 })
-        7 -> EchoGameScreen(onBackClicked = { flowStep = 5 })
+        7 -> EchoGameScreen(
+            onBackClicked = { flowStep = 5 },
+            onOpenStroopTest = { flowStep = 8 },
+            onOpenAimTrainer = { flowStep = 9 },
+            onOpenMatchPairs = { flowStep = 10 },
+            onOpenWordle = { flowStep = 11 },
+            onOpenSudoku = { flowStep = 12 }
+        )
+        8 -> EchoStroopTestScreen(onBackClicked = { flowStep = 7 })
+        9 -> EchoAimTrainerScreen(onBackClicked = { flowStep = 7 })
+        10 -> EchoMatchPairsScreen(onBackClicked = { flowStep = 7 })
+        11 -> EchoWordleScreen(onBackClicked = { flowStep = 7 })
+        12 -> EchoSudokuScreen(onBackClicked = { flowStep = 7 })
         else -> EchoHomeScreen(
             onOpenChat = { flowStep = 6 },
             onOpenGames = { flowStep = 7 }
@@ -1407,7 +1429,14 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EchoGameScreen(onBackClicked: () -> Unit) {
+fun EchoGameScreen(
+    onBackClicked: () -> Unit,
+    onOpenStroopTest: () -> Unit = {},
+    onOpenAimTrainer: () -> Unit = {},
+    onOpenMatchPairs: () -> Unit = {},
+    onOpenWordle: () -> Unit = {},
+    onOpenSudoku: () -> Unit = {}
+) {
     val context = LocalContext.current
     var userName by remember { mutableStateOf("User") }
     val configuration = LocalConfiguration.current
@@ -1553,7 +1582,14 @@ fun EchoGameScreen(onBackClicked: () -> Unit) {
                             .fillMaxWidth()
                             .height(currentButtonHeight)
                             .clickable {
-                                Toast.makeText(context, "Starting $gameName...", Toast.LENGTH_SHORT).show()
+                                when (index) {
+                                    1 -> onOpenStroopTest()
+                                    2 -> onOpenAimTrainer()
+                                    3 -> onOpenMatchPairs()
+                                    4 -> onOpenWordle()
+                                    5 -> onOpenSudoku()
+                                    else -> Toast.makeText(context, "Starting $gameName...", Toast.LENGTH_SHORT).show()
+                                }
                             },
                         shape = RoundedCornerShape(cornerRadius),
                         elevation = CardDefaults.cardElevation(defaultElevation = elevationShadow)
@@ -1566,6 +1602,1474 @@ fun EchoGameScreen(onBackClicked: () -> Unit) {
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+// ==========================================
+// SCREEN 7: COLOR STROOP TEST GAME SCREEN
+// ==========================================
+
+data class StroopColorOption(
+    val name: String,
+    val color: Color
+)
+
+val stroopColors = listOf(
+    StroopColorOption("RED", Color(0xFFE53935)),
+    StroopColorOption("BLUE", Color(0xFF1E88E5)),
+    StroopColorOption("GREEN", Color(0xFF4CAF50)),
+    StroopColorOption("YELLOW", Color(0xFFFBC02D)),
+    StroopColorOption("PURPLE", Color(0xFF8E24AA)),
+    StroopColorOption("ORANGE", Color(0xFFFB8C00))
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EchoStroopTestScreen(onBackClicked: () -> Unit) {
+    var score by remember { mutableIntStateOf(0) }
+    var highScore by remember { mutableIntStateOf(140) }
+    var timeLeft by remember { mutableIntStateOf(30) }
+    var isGameActive by remember { mutableStateOf(true) }
+
+    var correctAnswers by remember { mutableIntStateOf(0) }
+    var wrongAnswers by remember { mutableIntStateOf(0) }
+
+    var displayedWordOption by remember { mutableStateOf(stroopColors.random()) }
+    var displayedInkOption by remember { mutableStateOf(stroopColors.random()) }
+
+    fun generateNewChallenge() {
+        val word = stroopColors.random()
+        val ink = stroopColors.random()
+        displayedWordOption = word
+        displayedInkOption = ink
+    }
+
+    LaunchedEffect(isGameActive) {
+        if (isGameActive) {
+            while (timeLeft > 0) {
+                delay(1000L)
+                timeLeft--
+            }
+            isGameActive = false
+            if (score > highScore) {
+                highScore = score
+            }
+        }
+    }
+
+    fun restartGame() {
+        score = 0
+        timeLeft = 30
+        correctAnswers = 0
+        wrongAnswers = 0
+        isGameActive = true
+        generateNewChallenge()
+    }
+
+    fun handleOptionClick(selectedColorOption: StroopColorOption) {
+        if (!isGameActive) return
+
+        if (selectedColorOption.name == displayedInkOption.name) {
+            score += 10
+            correctAnswers++
+        } else {
+            score = (score - 5).coerceAtLeast(0)
+            wrongAnswers++
+        }
+        generateNewChallenge()
+    }
+
+    Scaffold(
+        containerColor = EchoBgLight,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "Color Stroop Test",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBackClicked) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { restartGame() }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Restart",
+                            tint = Color.White
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = EchoBlueHeader)
+            )
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(text = "SCORE", fontSize = 11.sp, color = EchoSubtextGray, fontWeight = FontWeight.Bold)
+                            Text(text = "$score", fontSize = 22.sp, color = EchoDarkBlueButton, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(text = "HIGH SCORE", fontSize = 11.sp, color = EchoSubtextGray, fontWeight = FontWeight.Bold)
+                            Text(text = "$highScore", fontSize = 22.sp, color = EchoBlueHeader, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = if (timeLeft <= 5) Color(0xFFFFEBEE) else Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(text = "TIME", fontSize = 11.sp, color = EchoSubtextGray, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "${timeLeft}s",
+                                fontSize = 22.sp,
+                                color = if (timeLeft <= 5) Color.Red else Color.Black,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Select the INK COLOR, not the word!",
+                            color = EchoSubtextGray,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = displayedWordOption.name,
+                            color = displayedInkOption.color,
+                            fontSize = 44.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 2.sp
+                        )
+                    }
+                }
+
+                Column {
+                    Text(
+                        text = "Tap the matching color:",
+                        fontSize = 14.sp,
+                        color = EchoDarkBlueButton,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(210.dp)
+                    ) {
+                        items(stroopColors) { colorOption ->
+                            Button(
+                                onClick = { handleOptionClick(colorOption) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(58.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = colorOption.color),
+                                enabled = isGameActive
+                            ) {
+                                Text(
+                                    text = colorOption.name,
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!isGameActive) {
+                AlertDialog(
+                    onDismissRequest = { },
+                    title = {
+                        Text(
+                            text = "Time's Up!",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 22.sp,
+                            color = EchoDarkBlueButton
+                        )
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(text = "Your Final Score: $score", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text(text = "High Score: $highScore", fontSize = 15.sp, color = EchoSubtextGray)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = "Correct Answers: $correctAnswers (+${correctAnswers * 10} pts)")
+                            Text(text = "Wrong Answers: $wrongAnswers (-${wrongAnswers * 5} pts)")
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = { restartGame() },
+                            colors = ButtonDefaults.buttonColors(containerColor = EchoBlueHeader)
+                        ) {
+                            Text("Play Again", color = Color.White)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = onBackClicked) {
+                            Text("Exit Menu", color = EchoSubtextGray)
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+// ==========================================
+// SCREEN 8: AIM TRAINER GAME SCREEN
+// ==========================================
+
+data class TargetPoint(
+    val x: Float,
+    val y: Float,
+    val radius: Float = 45f,
+    val spawnedAt: Long = System.currentTimeMillis()
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EchoAimTrainerScreen(onBackClicked: () -> Unit) {
+    var score by remember { mutableIntStateOf(0) }
+    var highScore by remember { mutableIntStateOf(1200) }
+    var timeLeft by remember { mutableIntStateOf(30) }
+    var isGameActive by remember { mutableStateOf(true) }
+
+    var targetsHit by remember { mutableIntStateOf(0) }
+    var targetsMissed by remember { mutableIntStateOf(0) }
+    val reactionTimesMs = remember { mutableStateListOf<Long>() }
+
+    var canvasSize by remember { mutableStateOf(Offset.Zero) }
+    var currentTarget by remember { mutableStateOf<TargetPoint?>(null) }
+
+    fun spawnNewTarget() {
+        if (canvasSize.x <= 100f || canvasSize.y <= 100f) return
+        val margin = 80f
+        val newX = Random.nextFloat() * (canvasSize.x - 2 * margin) + margin
+        val newY = Random.nextFloat() * (canvasSize.y - 2 * margin) + margin
+        val newRadius = Random.nextFloat() * 20f + 35f
+        currentTarget = TargetPoint(x = newX, y = newY, radius = newRadius)
+    }
+
+    LaunchedEffect(isGameActive, canvasSize) {
+        if (isGameActive && canvasSize.x > 0f) {
+            spawnNewTarget()
+            while (timeLeft > 0) {
+                delay(1000L)
+                timeLeft--
+            }
+            isGameActive = false
+            if (score > highScore) {
+                highScore = score
+            }
+        }
+    }
+
+    fun restartGame() {
+        score = 0
+        timeLeft = 30
+        targetsHit = 0
+        targetsMissed = 0
+        reactionTimesMs.clear()
+        isGameActive = true
+        spawnNewTarget()
+    }
+
+    fun handleCanvasTap(tapOffset: Offset) {
+        if (!isGameActive) return
+        val target = currentTarget ?: return
+
+        val distance = hypot(tapOffset.x - target.x, tapOffset.y - target.y)
+
+        if (distance <= target.radius) {
+            val reactionTime = System.currentTimeMillis() - target.spawnedAt
+            reactionTimesMs.add(reactionTime)
+            score += 100
+            targetsHit++
+            spawnNewTarget()
+        } else {
+            score = (score - 20).coerceAtLeast(0)
+            targetsMissed++
+        }
+    }
+
+    Scaffold(
+        containerColor = EchoBgLight,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "Aim Trainer",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBackClicked) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { restartGame() }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Restart",
+                            tint = Color.White
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = EchoBlueHeader)
+            )
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(text = "SCORE", fontSize = 10.sp, color = EchoSubtextGray, fontWeight = FontWeight.Bold)
+                            Text(text = "$score", fontSize = 20.sp, color = EchoDarkBlueButton, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(text = "HIGH SCORE", fontSize = 10.sp, color = EchoSubtextGray, fontWeight = FontWeight.Bold)
+                            Text(text = "$highScore", fontSize = 20.sp, color = EchoBlueHeader, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = if (timeLeft <= 5) Color(0xFFFFEBEE) else Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(text = "TIME", fontSize = 10.sp, color = EchoSubtextGray, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "${timeLeft}s",
+                                fontSize = 20.sp,
+                                color = if (timeLeft <= 5) Color.Red else Color.Black,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.White)
+                        .border(1.5.dp, EchoInputFieldBorder.copy(alpha = 0.2f), RoundedCornerShape(20.dp))
+                ) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(isGameActive) {
+                                detectTapGestures { offset ->
+                                    handleCanvasTap(offset)
+                                }
+                            }
+                    ) {
+                        if (canvasSize.x == 0f) {
+                            canvasSize = Offset(size.width, size.height)
+                        }
+
+                        currentTarget?.let { target ->
+                            drawCircle(
+                                color = Color(0xFFE53935),
+                                radius = target.radius,
+                                center = Offset(target.x, target.y)
+                            )
+                            drawCircle(
+                                color = Color.White,
+                                radius = target.radius * 0.65f,
+                                center = Offset(target.x, target.y)
+                            )
+                            drawCircle(
+                                color = Color(0xFFE53935),
+                                radius = target.radius * 0.35f,
+                                center = Offset(target.x, target.y)
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (!isGameActive) {
+                val totalClicks = targetsHit + targetsMissed
+                val accuracy = if (totalClicks > 0) (targetsHit.toFloat() / totalClicks * 100).toInt() else 0
+                val avgReactionMs = if (reactionTimesMs.isNotEmpty()) reactionTimesMs.average().toLong() else 0
+
+                AlertDialog(
+                    onDismissRequest = { },
+                    title = {
+                        Text(
+                            text = "Training Complete!",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 22.sp,
+                            color = EchoDarkBlueButton
+                        )
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(text = "Final Score: $score", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text(text = "High Score: $highScore", fontSize = 14.sp, color = EchoSubtextGray)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = "Targets Hit: $targetsHit")
+                            Text(text = "Accuracy: $accuracy%")
+                            Text(text = "Avg Reaction Time: ${avgReactionMs} ms")
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = { restartGame() },
+                            colors = ButtonDefaults.buttonColors(containerColor = EchoBlueHeader)
+                        ) {
+                            Text("Play Again", color = Color.White)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = onBackClicked) {
+                            Text("Exit Menu", color = EchoSubtextGray)
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+// ==========================================
+// SCREEN 9: MATCH THE PAIRS MEMORY GAME
+// ==========================================
+
+data class MemoryCard(
+    val id: Int,
+    val content: String,
+    var isFaceUp: Boolean = false,
+    var isMatched: Boolean = false
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EchoMatchPairsScreen(onBackClicked: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var score by remember { mutableIntStateOf(0) }
+    var highScore by remember { mutableIntStateOf(600) }
+    var moves by remember { mutableIntStateOf(0) }
+    var elapsedTime by remember { mutableIntStateOf(0) }
+    var isGameActive by remember { mutableStateOf(true) }
+
+    val emojis = listOf("🍎", "🐶", "🚀", "🎸", "⚽", "🧩")
+    val cards = remember { mutableStateListOf<MemoryCard>() }
+    var selectedIndices by remember { mutableStateOf<List<Int>>(emptyList()) }
+
+    fun setupNewGame() {
+        val pairedList = (emojis + emojis).shuffled().mapIndexed { index, symbol ->
+            MemoryCard(id = index, content = symbol)
+        }
+        cards.clear()
+        cards.addAll(pairedList)
+        score = 0
+        moves = 0
+        elapsedTime = 0
+        selectedIndices = emptyList()
+        isGameActive = true
+    }
+
+    LaunchedEffect(Unit) {
+        setupNewGame()
+    }
+
+    LaunchedEffect(isGameActive) {
+        if (isGameActive) {
+            while (isGameActive) {
+                delay(1000L)
+                elapsedTime++
+                if (cards.isNotEmpty() && cards.all { it.isMatched }) {
+                    isGameActive = false
+                    if (score > highScore) {
+                        highScore = score
+                    }
+                }
+            }
+        }
+    }
+
+    fun handleCardClick(index: Int) {
+        if (!isGameActive || selectedIndices.size >= 2 || cards[index].isFaceUp || cards[index].isMatched) return
+
+        cards[index] = cards[index].copy(isFaceUp = true)
+        val currentSelected = selectedIndices + index
+        selectedIndices = currentSelected
+
+        if (currentSelected.size == 2) {
+            moves++
+            val firstCard = cards[currentSelected[0]]
+            val secondCard = cards[currentSelected[1]]
+
+            if (firstCard.content == secondCard.content) {
+                score += 100
+                cards[currentSelected[0]] = firstCard.copy(isMatched = true)
+                cards[currentSelected[1]] = secondCard.copy(isMatched = true)
+                selectedIndices = emptyList()
+            } else {
+                score = (score - 10).coerceAtLeast(0)
+                scope.launch {
+                    delay(800L)
+                    cards[currentSelected[0]] = cards[currentSelected[0]].copy(isFaceUp = false)
+                    cards[currentSelected[1]] = cards[currentSelected[1]].copy(isFaceUp = false)
+                    selectedIndices = emptyList()
+                }
+            }
+        }
+    }
+
+    Scaffold(
+        containerColor = EchoBgLight,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "Match The Pairs",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBackClicked) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { setupNewGame() }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Restart",
+                            tint = Color.White
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = EchoBlueHeader)
+            )
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(text = "SCORE", fontSize = 10.sp, color = EchoSubtextGray, fontWeight = FontWeight.Bold)
+                            Text(text = "$score", fontSize = 20.sp, color = EchoDarkBlueButton, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(text = "MOVES", fontSize = 10.sp, color = EchoSubtextGray, fontWeight = FontWeight.Bold)
+                            Text(text = "$moves", fontSize = 20.sp, color = EchoBlueHeader, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(text = "TIME", fontSize = 10.sp, color = EchoSubtextGray, fontWeight = FontWeight.Bold)
+                            Text(text = "${elapsedTime}s", fontSize = 20.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp)
+                ) {
+                    itemsIndexed(cards) { index, card ->
+                        Card(
+                            modifier = Modifier
+                                .aspectRatio(1f)
+                                .clickable { handleCardClick(index) },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (card.isFaceUp || card.isMatched) Color.White else EchoDarkBlueButton
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (card.isFaceUp || card.isMatched) {
+                                    Text(
+                                        text = card.content,
+                                        fontSize = 32.sp
+                                    )
+                                } else {
+                                    Text(
+                                        text = "?",
+                                        color = Color.White.copy(alpha = 0.7f),
+                                        fontSize = 28.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            if (!isGameActive) {
+                AlertDialog(
+                    onDismissRequest = { },
+                    title = {
+                        Text(
+                            text = "Pairs Matched!",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 22.sp,
+                            color = EchoDarkBlueButton
+                        )
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(text = "Final Score: $score", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text(text = "High Score: $highScore", fontSize = 14.sp, color = EchoSubtextGray)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = "Total Moves: $moves")
+                            Text(text = "Time Taken: ${elapsedTime}s")
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = { setupNewGame() },
+                            colors = ButtonDefaults.buttonColors(containerColor = EchoBlueHeader)
+                        ) {
+                            Text("Play Again", color = Color.White)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = onBackClicked) {
+                            Text("Exit Menu", color = EchoSubtextGray)
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+// ==========================================
+// SCREEN 10: WORDLE GAME SCREEN
+// ==========================================
+
+enum class LetterState { UNTRIED, ABSENT, PRESENT, CORRECT }
+
+val wordleWordBank = listOf("SMART", "BRAIN", "PAIRS", "SLATE", "ECHOES", "PLANT", "LIGHT", "DREAM", "WORLD", "HAPPY")
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EchoWordleScreen(onBackClicked: () -> Unit) {
+    val context = LocalContext.current
+    var targetWord by remember { mutableStateOf(wordleWordBank.random()) }
+    var score by remember { mutableIntStateOf(0) }
+    var highScore by remember { mutableIntStateOf(500) }
+
+    val guesses = remember { mutableStateListOf<String>() }
+    var currentInput by remember { mutableStateOf("") }
+    var isGameOver by remember { mutableStateOf(false) }
+    var hasWon by remember { mutableStateOf(false) }
+
+    val keyboardRows = listOf(
+        listOf("Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"),
+        listOf("A", "S", "D", "F", "G", "H", "J", "K", "L"),
+        listOf("ENTER", "Z", "X", "C", "V", "B", "N", "M", "⌫")
+    )
+
+    fun startNewGame() {
+        targetWord = wordleWordBank.random()
+        guesses.clear()
+        currentInput = ""
+        isGameOver = false
+        hasWon = false
+        score = 0
+    }
+
+    fun submitGuess() {
+        if (currentInput.length != 5) {
+            Toast.makeText(context, "Word must be 5 letters!", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        guesses.add(currentInput)
+        if (currentInput == targetWord) {
+            hasWon = true
+            isGameOver = true
+            score = (7 - guesses.size) * 100
+            if (score > highScore) highScore = score
+        } else if (guesses.size >= 6) {
+            isGameOver = true
+            score = 0
+        }
+        currentInput = ""
+    }
+
+    fun handleKeyPress(key: String) {
+        if (isGameOver) return
+        when (key) {
+            "ENTER" -> submitGuess()
+            "⌫" -> if (currentInput.isNotEmpty()) currentInput = currentInput.dropLast(1)
+            else -> if (currentInput.length < 5) currentInput += key
+        }
+    }
+
+    fun getLetterState(guess: String, charIndex: Int): LetterState {
+        val char = guess[charIndex]
+        return when {
+            targetWord[charIndex] == char -> LetterState.CORRECT
+            targetWord.contains(char) -> LetterState.PRESENT
+            else -> LetterState.ABSENT
+        }
+    }
+
+    fun getKeyColor(letter: String): Color {
+        var state = LetterState.UNTRIED
+        for (g in guesses) {
+            for (i in g.indices) {
+                if (g[i].toString() == letter) {
+                    val s = getLetterState(g, i)
+                    if (s == LetterState.CORRECT) return Color(0xFF6AAA64)
+                    if (s == LetterState.PRESENT && state != LetterState.CORRECT) state = LetterState.PRESENT
+                    if (s == LetterState.ABSENT && state == LetterState.UNTRIED) state = LetterState.ABSENT
+                }
+            }
+        }
+        return when (state) {
+            LetterState.CORRECT -> Color(0xFF6AAA64)
+            LetterState.PRESENT -> Color(0xFFC9B458)
+            LetterState.ABSENT -> Color(0xFF787C7E)
+            LetterState.UNTRIED -> Color(0xFFD3D6DA)
+        }
+    }
+
+    Scaffold(
+        containerColor = EchoBgLight,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "Wordle",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBackClicked) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { startNewGame() }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Restart",
+                            tint = Color.White
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = EchoBlueHeader)
+            )
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Top Scores
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(text = "SCORE", fontSize = 10.sp, color = EchoSubtextGray, fontWeight = FontWeight.Bold)
+                            Text(text = "$score", fontSize = 20.sp, color = EchoDarkBlueButton, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(text = "HIGH SCORE", fontSize = 10.sp, color = EchoSubtextGray, fontWeight = FontWeight.Bold)
+                            Text(text = "$highScore", fontSize = 20.sp, color = EchoBlueHeader, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // Wordle Grid (6 rows x 5 columns)
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(vertical = 12.dp)
+                ) {
+                    for (rowIndex in 0 until 6) {
+                        val rowWord = when {
+                            rowIndex < guesses.size -> guesses[rowIndex]
+                            rowIndex == guesses.size -> currentInput
+                            else -> ""
+                        }
+                        val isEvaluated = rowIndex < guesses.size
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            for (colIndex in 0 until 5) {
+                                val letter = rowWord.getOrNull(colIndex)?.toString() ?: ""
+                                val bgColor = if (isEvaluated) {
+                                    when (getLetterState(rowWord, colIndex)) {
+                                        LetterState.CORRECT -> Color(0xFF6AAA64)
+                                        LetterState.PRESENT -> Color(0xFFC9B458)
+                                        LetterState.ABSENT -> Color(0xFF787C7E)
+                                        LetterState.UNTRIED -> Color.White
+                                    }
+                                } else Color.White
+
+                                val textColor = if (isEvaluated) Color.White else Color.Black
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(52.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(bgColor)
+                                        .border(
+                                            1.5.dp,
+                                            if (isEvaluated) Color.Transparent else EchoInputFieldBorder.copy(alpha = 0.4f),
+                                            RoundedCornerShape(8.dp)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = letter,
+                                        fontSize = 22.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = textColor
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Custom On-Screen Keyboard
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    keyboardRows.forEach { row ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            row.forEach { key ->
+                                val isWideKey = key == "ENTER" || key == "⌫"
+                                val keyBg = if (isWideKey) EchoDarkBlueButton else getKeyColor(key)
+                                val keyTextClr = if (isWideKey || keyBg != Color(0xFFD3D6DA)) Color.White else Color.Black
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(if (isWideKey) 1.5f else 1f)
+                                        .height(48.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(keyBg)
+                                        .clickable { handleKeyPress(key) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = key,
+                                        fontSize = if (isWideKey) 12.sp else 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = keyTextClr
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Game End Modal
+            if (isGameOver) {
+                AlertDialog(
+                    onDismissRequest = { },
+                    title = {
+                        Text(
+                            text = if (hasWon) "You Won!" else "Better Luck Next Time!",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 22.sp,
+                            color = EchoDarkBlueButton
+                        )
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(text = "Target Word: $targetWord", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text(text = "Final Score: $score", fontSize = 16.sp)
+                            Text(text = "Guesses Used: ${guesses.size} / 6")
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = { startNewGame() },
+                            colors = ButtonDefaults.buttonColors(containerColor = EchoBlueHeader)
+                        ) {
+                            Text("Play Again", color = Color.White)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = onBackClicked) {
+                            Text("Exit Menu", color = EchoSubtextGray)
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+// ==========================================
+// SCREEN 11: SUDOKU GAME SCREEN
+// ==========================================
+
+data class SudokuCell(
+    val row: Int,
+    val col: Int,
+    var value: Int,
+    val isGiven: Boolean,
+    var isConflict: Boolean = false
+)
+
+val initialSudokuBoard = listOf(
+    listOf(5, 3, 0, 0, 7, 0, 0, 0, 0),
+    listOf(6, 0, 0, 1, 9, 5, 0, 0, 0),
+    listOf(0, 9, 8, 0, 0, 0, 0, 6, 0),
+    listOf(8, 0, 0, 0, 6, 0, 0, 0, 3),
+    listOf(4, 0, 0, 8, 0, 3, 0, 0, 1),
+    listOf(7, 0, 0, 0, 2, 0, 0, 0, 6),
+    listOf(0, 6, 0, 0, 0, 0, 2, 8, 0),
+    listOf(0, 0, 0, 4, 1, 9, 0, 0, 5),
+    listOf(0, 0, 0, 0, 8, 0, 0, 7, 9)
+)
+
+val solutionSudokuBoard = listOf(
+    listOf(5, 3, 4, 6, 7, 8, 9, 1, 2),
+    listOf(6, 7, 2, 1, 9, 5, 3, 4, 8),
+    listOf(1, 9, 8, 3, 4, 2, 5, 6, 7),
+    listOf(8, 5, 9, 7, 6, 1, 4, 2, 3),
+    listOf(4, 2, 6, 8, 5, 3, 7, 9, 1),
+    listOf(7, 1, 3, 9, 2, 4, 8, 5, 6),
+    listOf(9, 6, 1, 5, 3, 7, 2, 8, 4),
+    listOf(2, 8, 7, 4, 1, 9, 6, 3, 5),
+    listOf(3, 4, 5, 2, 8, 6, 1, 7, 9)
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EchoSudokuScreen(onBackClicked: () -> Unit) {
+    val boardState = remember { mutableStateListOf<SudokuCell>() }
+    var selectedCellIndex by remember { mutableStateOf<Int?>(null) }
+    var elapsedTime by remember { mutableIntStateOf(0) }
+    var isGameActive by remember { mutableStateOf(true) }
+    var moveCount by remember { mutableIntStateOf(0) }
+    var isSolved by remember { mutableStateOf(false) }
+
+    fun setupBoard() {
+        boardState.clear()
+        for (r in 0 until 9) {
+            for (c in 0 until 9) {
+                val valGiven = initialSudokuBoard[r][c]
+                boardState.add(
+                    SudokuCell(
+                        row = r,
+                        col = c,
+                        value = valGiven,
+                        isGiven = valGiven != 0
+                    )
+                )
+            }
+        }
+        selectedCellIndex = null
+        elapsedTime = 0
+        moveCount = 0
+        isGameActive = true
+        isSolved = false
+    }
+
+    LaunchedEffect(Unit) {
+        setupBoard()
+    }
+
+    LaunchedEffect(isGameActive) {
+        if (isGameActive) {
+            while (isGameActive) {
+                delay(1000L)
+                elapsedTime++
+            }
+        }
+    }
+
+    fun validateBoard() {
+        var conflictsFound = false
+        var isFilled = true
+
+        for (i in 0 until 81) {
+            val cell = boardState[i]
+            if (cell.value == 0) {
+                isFilled = false
+                boardState[i] = cell.copy(isConflict = false)
+                continue
+            }
+
+            var conflict = false
+            for (j in 0 until 81) {
+                if (i == j) continue
+                val other = boardState[j]
+                if (other.value == cell.value) {
+                    val sameRow = cell.row == other.row
+                    val sameCol = cell.col == other.col
+                    val sameBox = (cell.row / 3 == other.row / 3) && (cell.col / 3 == other.col / 3)
+                    if (sameRow || sameCol || sameBox) {
+                        conflict = true
+                        break
+                    }
+                }
+            }
+
+            if (conflict) conflictsFound = true
+            boardState[i] = cell.copy(isConflict = conflict)
+        }
+
+        if (isFilled && !conflictsFound) {
+            isSolved = true
+            isGameActive = false
+        }
+    }
+
+    fun handleNumberInput(number: Int) {
+        val selIndex = selectedCellIndex ?: return
+        val currentCell = boardState[selIndex]
+        if (currentCell.isGiven || !isGameActive) return
+
+        boardState[selIndex] = currentCell.copy(value = number)
+        moveCount++
+        validateBoard()
+    }
+
+    fun handleErase() {
+        val selIndex = selectedCellIndex ?: return
+        val currentCell = boardState[selIndex]
+        if (currentCell.isGiven || !isGameActive) return
+
+        boardState[selIndex] = currentCell.copy(value = 0)
+        validateBoard()
+    }
+
+    Scaffold(
+        containerColor = EchoBgLight,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "Sudoku",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBackClicked) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { setupBoard() }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Restart",
+                            tint = Color.White
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = EchoBlueHeader)
+            )
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Top Status Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(text = "MOVES", fontSize = 10.sp, color = EchoSubtextGray, fontWeight = FontWeight.Bold)
+                            Text(text = "$moveCount", fontSize = 20.sp, color = EchoDarkBlueButton, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(text = "TIME", fontSize = 10.sp, color = EchoSubtextGray, fontWeight = FontWeight.Bold)
+                            Text(text = "${elapsedTime}s", fontSize = 20.sp, color = EchoBlueHeader, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // Sudoku 9x9 Grid with 3x3 Block Highlights
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(EchoInputFieldBorder)
+                        .padding(2.dp)
+                ) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(9),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        itemsIndexed(boardState) { index, cell ->
+                            val isSelected = index == selectedCellIndex
+                            val row = cell.row
+                            val col = cell.col
+
+                            // 3x3 block visual differentiation
+                            val is3x3Alternate = ((row / 3) + (col / 3)) % 2 == 1
+                            val cellBg = when {
+                                isSelected -> Color(0xFFBBDEFB)
+                                cell.isConflict -> Color(0xFFFFCDD2)
+                                is3x3Alternate -> Color(0xFFF0F4F8)
+                                else -> Color.White
+                            }
+
+                            val textClr = when {
+                                cell.isConflict -> Color.Red
+                                cell.isGiven -> EchoDarkBlueButton
+                                else -> EchoBlueHeader
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .background(cellBg)
+                                    .border(0.5.dp, EchoInputFieldBorder.copy(alpha = 0.25f))
+                                    .clickable { selectedCellIndex = index },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (cell.value != 0) {
+                                    Text(
+                                        text = cell.value.toString(),
+                                        fontSize = 18.sp,
+                                        fontWeight = if (cell.isGiven) FontWeight.ExtraBold else FontWeight.Bold,
+                                        color = textClr
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Number Pad (1-9) + Erase Control
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for (num in 1..5) {
+                            Button(
+                                onClick = { handleNumberInput(num) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = EchoDarkBlueButton)
+                            ) {
+                                Text(text = "$num", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for (num in 6..9) {
+                            Button(
+                                onClick = { handleNumberInput(num) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = EchoDarkBlueButton)
+                            ) {
+                                Text(text = "$num", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
+
+                        Button(
+                            onClick = { handleErase() },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))
+                        ) {
+                            Text(text = "⌫", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+            }
+
+            // Solved Success Modal
+            if (isSolved) {
+                AlertDialog(
+                    onDismissRequest = { },
+                    title = {
+                        Text(
+                            text = "Puzzle Completed!",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 22.sp,
+                            color = EchoDarkBlueButton
+                        )
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(text = "Great job! You solved the Sudoku puzzle.", fontSize = 15.sp)
+                            Text(text = "Total Moves: $moveCount", fontWeight = FontWeight.Bold)
+                            Text(text = "Time Taken: ${elapsedTime}s", fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = { setupBoard() },
+                            colors = ButtonDefaults.buttonColors(containerColor = EchoBlueHeader)
+                        ) {
+                            Text("Play Again", color = Color.White)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = onBackClicked) {
+                            Text("Exit Menu", color = EchoSubtextGray)
+                        }
+                    }
+                )
             }
         }
     }
