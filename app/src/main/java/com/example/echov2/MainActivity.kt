@@ -1,6 +1,16 @@
 package com.example.echov2
 
 import android.Manifest
+import android.app.AlarmManager
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.TimePickerDialog
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
+import androidx.core.app.NotificationCompat
+import java.util.Calendar
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.MediaRecorder
@@ -225,7 +235,8 @@ fun EchoNavigationFlow() {
         5 -> EchoHomeScreen(
             onOpenChat = { flowStep = 6 },
             onOpenGames = { flowStep = 7 },
-            onOpenLeaderboard = { flowStep = 13 }
+            onOpenLeaderboard = { flowStep = 13 },
+            onOpenMedicines = { flowStep = 14 }
         )
         6 -> EchoChatScreen(onBackClicked = { flowStep = 5 })
         7 -> EchoGameScreen(
@@ -242,10 +253,12 @@ fun EchoNavigationFlow() {
         11 -> EchoWordleScreen(onBackClicked = { flowStep = 7 })
         12 -> EchoSudokuScreen(onBackClicked = { flowStep = 7 })
         13 -> EchoLeaderboardScreen(onBackClicked = { flowStep = 5 })
+        14 -> EchoMedicinesScreen(onBackClicked = { flowStep = 5 })
         else -> EchoHomeScreen(
             onOpenChat = { flowStep = 6 },
             onOpenGames = { flowStep = 7 },
-            onOpenLeaderboard = { flowStep = 13 }
+            onOpenLeaderboard = { flowStep = 13 },
+            onOpenMedicines = { flowStep = 14 }
         )
     }
 }
@@ -657,7 +670,8 @@ fun TermsCheckbox(isAgreed: Boolean, onCheckedChange: (Boolean) -> Unit) {
 fun EchoHomeScreen(
     onOpenChat: () -> Unit = {},
     onOpenGames: () -> Unit = {},
-    onOpenLeaderboard: () -> Unit = {}
+    onOpenLeaderboard: () -> Unit = {},
+    onOpenMedicines: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var userName by remember { mutableStateOf("User") }
@@ -811,7 +825,7 @@ fun EchoHomeScreen(
                             modifier = Modifier.weight(1f),
                             iconUrl = "https://cdn-icons-png.flaticon.com/512/883/883407.png",
                             title = "Medicines",
-                            onClick = { Toast.makeText(context, "Reminders Clicked", Toast.LENGTH_SHORT).show() }
+                            onClick = { onOpenMedicines() }
                         )
                         FeatureGridItemUrl(
                             modifier = Modifier.weight(1f),
@@ -4041,6 +4055,369 @@ fun FeatureGridItemUrl(
                 fontWeight = FontWeight.Medium,
                 color = Color(0xFF333333)
             )
+        }
+    }
+}
+
+// ==========================================
+// MEDICINES: DAILY REMINDERS + FIRESTORE
+// ==========================================
+
+data class MedicineEntry(
+    val id: String = "",
+    val name: String = "",
+    val times: List<String> = emptyList()
+)
+
+private const val MEDICINE_CHANNEL_ID = "echo_medicine_reminders"
+
+private fun createMedicineNotificationChannel(context: Context) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val channel = NotificationChannel(
+            MEDICINE_CHANNEL_ID,
+            "Daily medicine reminders",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply { description = "Reminders at your scheduled medicine times" }
+        context.getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(channel)
+    }
+}
+
+private fun medicinePendingIntent(
+    context: Context, id: String, name: String, time: String
+): PendingIntent {
+    val requestCode = (id + "_" + time).hashCode()
+    val intent = Intent(context, MedicineReminderReceiver::class.java).apply {
+        putExtra("medicineId", id)
+        putExtra("medicineName", name)
+        putExtra("medicineTime", time)
+    }
+    return PendingIntent.getBroadcast(
+        context, requestCode, intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or
+                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+    )
+}
+
+private fun scheduleDailyMedicineReminder(
+    context: Context, id: String, name: String, time: String
+) {
+    val parts = time.split(":")
+    if (parts.size != 2) return
+    val hour = parts[0].toIntOrNull() ?: return
+    val minute = parts[1].toIntOrNull() ?: return
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    val pendingIntent = medicinePendingIntent(context, id, name, time)
+    val now = Calendar.getInstance()
+    val trigger = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, hour)
+        set(Calendar.MINUTE, minute)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+        if (timeInMillis <= now.timeInMillis) add(Calendar.DAY_OF_YEAR, 1)
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger.timeInMillis, pendingIntent)
+    } else {
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger.timeInMillis, pendingIntent)
+    }
+}
+
+class MedicineReminderReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val id = intent.getStringExtra("medicineId") ?: return
+        val name = intent.getStringExtra("medicineName") ?: "Medicine"
+        val time = intent.getStringExtra("medicineTime") ?: return
+        createMedicineNotificationChannel(context)
+        val notificationIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+        val contentPendingIntent = notificationIntent?.let {
+            PendingIntent.getActivity(
+                context, (id + time).hashCode(), it,
+                PendingIntent.FLAG_UPDATE_CURRENT or
+                        (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+            )
+        }
+        val notification = NotificationCompat.Builder(context, MEDICINE_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle("Time for your medicine")
+            .setContentText("It's time to take $name ($time).")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .apply { if (contentPendingIntent != null) setContentIntent(contentPendingIntent) }
+            .build()
+        val notificationId = (id + "_" + time).hashCode()
+        context.getSystemService(NotificationManager::class.java).notify(notificationId, notification)
+
+        // Re-arm this exact reminder for the next local calendar day.
+        scheduleDailyMedicineReminder(context, id, name, time)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EchoMedicinesScreen(onBackClicked: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val auth = FirebaseAuth.getInstance()
+    val db = FirebaseFirestore.getInstance()
+    val uid = auth.currentUser?.uid
+    var medicineName by remember { mutableStateOf("") }
+    var frequencyText by remember { mutableStateOf("1") }
+    var times by remember { mutableStateOf(listOf("09:00")) }
+    var medicines by remember { mutableStateOf(listOf<MedicineEntry>()) }
+    var isAdding by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
+    var notificationPermissionGranted by remember {
+        mutableStateOf(
+            Build.VERSION.SDK_INT < 33 ||
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+                    PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        notificationPermissionGranted = granted
+        if (granted) createMedicineNotificationChannel(context)
+        else Toast.makeText(context, "Enable notifications to receive medicine reminders.", Toast.LENGTH_LONG).show()
+    }
+
+    LaunchedEffect(Unit) {
+        createMedicineNotificationChannel(context)
+        if (Build.VERSION.SDK_INT >= 33 && !notificationPermissionGranted) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (uid != null) {
+            try {
+                val snapshot = db.collection("users").document(uid)
+                    .collection("medicines").get().await()
+                medicines = snapshot.documents.map { doc ->
+                    MedicineEntry(
+                        id = doc.id,
+                        name = doc.getString("name") ?: "",
+                        times = (doc.get("times") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                    )
+                }
+                medicines.forEach { entry ->
+                    entry.times.forEach { time ->
+                        scheduleDailyMedicineReminder(context, entry.id, entry.name, time)
+                    }
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Could not load medicines: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+        isLoading = false
+    }
+
+    val frequency = frequencyText.toIntOrNull()?.coerceIn(1, 8) ?: 1
+    LaunchedEffect(frequency) {
+        times = when {
+            times.size < frequency -> times + List(frequency - times.size) { index ->
+                listOf("09:00", "13:00", "18:00", "21:00", "08:00", "12:00", "16:00", "20:00")[
+                    (times.size + index).coerceAtMost(7)
+                ]
+            }
+            times.size > frequency -> times.take(frequency)
+            else -> times
+        }
+    }
+
+    Scaffold(containerColor = Color(0xFFFDFDFD)) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding)
+                .background(Color(0xFFFDFDFD))
+                .padding(horizontal = 22.dp, vertical = 12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("‹", color = EchoBlueHeader, fontSize = 30.sp,
+                    modifier = Modifier.clickable { onBackClicked() }.padding(end = 12.dp))
+                Column {
+                    Text("Your Daily", color = EchoDarkBlueButton, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                    Text("Medicines", color = Color(0xFFFFB74D), fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(Modifier.height(22.dp))
+
+            if (medicines.isNotEmpty()) {
+                medicines.forEach { medicine ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        var checked by remember(medicine.id) { mutableStateOf(true) }
+                        Checkbox(
+                            checked = checked, onCheckedChange = { checked = it },
+                            colors = CheckboxDefaults.colors(checkedColor = EchoDarkBlueButton)
+                        )
+                        Text(medicine.name, modifier = Modifier.weight(1f), color = Color.DarkGray, fontSize = 15.sp)
+                        Column(horizontalAlignment = Alignment.End) {
+                            medicine.times.forEach { time ->
+                                val pieces = time.split(":")
+                                val h = pieces.getOrNull(0)?.toIntOrNull() ?: 0
+                                val m = pieces.getOrNull(1)?.toIntOrNull() ?: 0
+                                val display = Calendar.getInstance().apply {
+                                    set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, m)
+                                }.let { java.text.SimpleDateFormat("h:mm a", Locale.getDefault()).format(it.time) }
+                                Text(display, color = Color.DarkGray, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+            }
+
+            if (isAdding || medicines.isEmpty()) {
+                OutlinedTextField(
+                    value = medicineName, onValueChange = { medicineName = it },
+                    placeholder = { Text("Name of Medicine", color = EchoSubtextGray, fontSize = 14.sp) },
+                    leadingIcon = { Icon(Icons.Outlined.Person, contentDescription = null, tint = EchoSubtextGray) },
+                    singleLine = true, shape = RoundedCornerShape(28.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = EchoInputFieldBorder,
+                        unfocusedBorderColor = EchoInputFieldBorder
+                    )
+                )
+                OutlinedTextField(
+                    value = frequencyText,
+                    onValueChange = { value ->
+                        frequencyText = value.filter(Char::isDigit).take(1).let {
+                            if (it.isBlank()) "" else it.coerceIn("1", "8")
+                        }
+                    },
+                    placeholder = { Text("How many times per day?", color = EchoSubtextGray, fontSize = 14.sp) },
+                    leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null, tint = EchoSubtextGray) },
+                    singleLine = true, shape = RoundedCornerShape(28.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = EchoInputFieldBorder,
+                        unfocusedBorderColor = EchoInputFieldBorder
+                    )
+                )
+                times.forEachIndexed { index, time ->
+                    OutlinedButton(
+                        onClick = {
+                            val parts = time.split(":")
+                            TimePickerDialog(
+                                context,
+                                { _, hour, minute ->
+                                    times = times.toMutableList().also {
+                                        it[index] = "%02d:%02d".format(hour, minute)
+                                    }
+                                },
+                                parts[0].toIntOrNull() ?: 9,
+                                parts[1].toIntOrNull() ?: 0,
+                                false
+                            ).show()
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).height(48.dp),
+                        shape = RoundedCornerShape(28.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, EchoInputFieldBorder),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = EchoSubtextGray)
+                    ) {
+                        Icon(Icons.Outlined.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Time ${index + 1}: " + run {
+                            val p = time.split(":")
+                            val hour = p[0].toIntOrNull() ?: 9
+                            val minute = p[1].toIntOrNull() ?: 0
+                            java.text.SimpleDateFormat("h:mm a", Locale.getDefault()).format(
+                                Calendar.getInstance().apply {
+                                    set(Calendar.HOUR_OF_DAY, hour); set(Calendar.MINUTE, minute)
+                                }.time
+                            )
+                        })
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Button(
+                    onClick = {
+                        val cleanName = medicineName.trim()
+                        val validFrequency = frequencyText.toIntOrNull()
+                        if (cleanName.isBlank() || validFrequency == null || validFrequency !in 1..8 || times.size != validFrequency) {
+                            Toast.makeText(context, "Enter a medicine name, frequency (1–8), and each scheduled time.", Toast.LENGTH_LONG).show()
+                        } else if (uid == null) {
+                            Toast.makeText(context, "Sign in to save medicines.", Toast.LENGTH_LONG).show()
+                        } else if (Build.VERSION.SDK_INT >= 33 && !notificationPermissionGranted) {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            isAdding = false
+                            scope.launch {
+                                try {
+                                    val ref = db.collection("users").document(uid)
+                                        .collection("medicines").document()
+                                    val data = hashMapOf(
+                                        "name" to cleanName,
+                                        "frequencyPerDay" to validFrequency,
+                                        "times" to times,
+                                        "createdAt" to FieldValue.serverTimestamp(),
+                                        "updatedAt" to FieldValue.serverTimestamp(),
+                                        "active" to true
+                                    )
+                                    ref.set(data).await()
+                                    val entry = MedicineEntry(ref.id, cleanName, times.toList())
+                                    medicines = medicines + entry
+                                    times.forEach { scheduleDailyMedicineReminder(context, ref.id, cleanName, it) }
+                                    medicineName = ""
+                                    frequencyText = "1"
+                                    times = listOf("09:00")
+                                    Toast.makeText(context, "Medicine saved with daily reminders.", Toast.LENGTH_SHORT).show()
+                                } catch (e: Exception) {
+                                    isAdding = true
+                                    Toast.makeText(context, "Could not save medicine: ${e.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(28.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = EchoDarkBlueButton)
+                ) {
+                    Text("Done", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = { isAdding = true },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(28.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = EchoDarkBlueButton)
+                ) { Text("Add New Medicine", color = Color.White, fontWeight = FontWeight.Bold) }
+            }
+
+            if (isLoading) {
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = EchoBlueHeader)
+                }
+            } else {
+                Spacer(Modifier.height(20.dp))
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.BottomCenter) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        AsyncImage(
+                            model = echoAvatarUrl,
+                            contentDescription = "Echo reminder assistant",
+                            modifier = Modifier.size(118.dp),
+                            contentScale = ContentScale.Fit
+                        )
+                        Box(
+                            modifier = Modifier.weight(1f).clip(RoundedCornerShape(22.dp))
+                                .background(Color(0xFFE7EEE9)).padding(12.dp)
+                        ) {
+                            Text("I’ll send you a notification when it’s time for your meds.",
+                                color = Color.DarkGray, fontSize = 13.sp, textAlign = TextAlign.Center)
+                        }
+                    }
+                }
+            }
         }
     }
 }
