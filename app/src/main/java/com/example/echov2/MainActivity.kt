@@ -165,9 +165,9 @@ object NetworkClient {
 
     val okHttpClient = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(80, TimeUnit.SECONDS)
+        .readTimeout(80, TimeUnit.SECONDS)
+        .writeTimeout(80, TimeUnit.SECONDS)
         .build()
 
     val apiService: EchoApiService by lazy {
@@ -809,9 +809,9 @@ fun EchoHomeScreen(
                         )
                         FeatureGridItemUrl(
                             modifier = Modifier.weight(1f),
-                            iconUrl = "https://static.thenounproject.com/png/3203474-200.png",
-                            title = "Stories",
-                            onClick = { Toast.makeText(context, "Stories Clicked", Toast.LENGTH_SHORT).show() }
+                            iconUrl = "https://cdn-icons-png.flaticon.com/512/883/883407.png",
+                            title = "Medicines",
+                            onClick = { Toast.makeText(context, "Medicines Clicked", Toast.LENGTH_SHORT).show() }
                         )
                         FeatureGridItemUrl(
                             modifier = Modifier.weight(1f),
@@ -898,10 +898,10 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
 
     fun startAudioRecording(): File? {
         return try {
-            val audioFile = File(context.cacheDir, "session_audio_${System.currentTimeMillis()}.m4a")
+            val audioFile = File(context.cacheDir, "session_audio_${System.currentTimeMillis()}.wav")
             val recorder = MediaRecorder().apply {
                 setAudioSource(MediaRecorder.AudioSource.MIC)
-                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setOutputFormat(MediaRecorder.OutputFormat.DEFAULT)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
                 setOutputFile(audioFile.absolutePath)
                 prepare()
@@ -1189,7 +1189,7 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
     fun processVoiceSession(audioFile: File) {
         val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
         val sessionId = "session_${System.currentTimeMillis()}"
-        val gcsPath = "users/$userId/sessions/$sessionId/audio.m4a"
+        val gcsPath = "users/$userId/sessions/$sessionId/audio.wav"
 
         scope.launch(Dispatchers.IO) {
             // 1. Run direct Kotlin Groq Whisper STT
@@ -1629,7 +1629,7 @@ val stroopColors = listOf(
 @Composable
 fun EchoStroopTestScreen(onBackClicked: () -> Unit) {
     var score by remember { mutableIntStateOf(0) }
-    var highScore by remember { mutableIntStateOf(140) }
+    var highScore by remember { mutableIntStateOf(0) }
     var timeLeft by remember { mutableIntStateOf(30) }
     var isGameActive by remember { mutableStateOf(true) }
 
@@ -1638,6 +1638,55 @@ fun EchoStroopTestScreen(onBackClicked: () -> Unit) {
 
     var displayedWordOption by remember { mutableStateOf(stroopColors.random()) }
     var displayedInkOption by remember { mutableStateOf(stroopColors.random()) }
+
+    val db = FirebaseFirestore.getInstance()
+    val userId = FirebaseAuth.getInstance().currentUser?.uid
+
+    // Load High Score from Firestore on start
+    LaunchedEffect(Unit) {
+        if (userId != null) {
+            db.collection("users").document(userId)
+                .collection("game_scores").document("stroop_test")
+                .get()
+                .addOnSuccessListener { doc ->
+                    if (doc != null && doc.exists()) {
+                        highScore = doc.getLong("highScore")?.toInt() ?: 0
+                    }
+                }
+        }
+    }
+
+    fun saveGameScoreToFirestore(finalScore: Int) {
+        if (userId == null) return
+        val userDocRef = db.collection("users").document(userId)
+
+        // 1. Save every attempt into history collection
+        val historyData = hashMapOf(
+            "gameId" to "stroop_test",
+            "gameName" to "Color Stroop Test",
+            "score" to finalScore,
+            "timestamp" to FieldValue.serverTimestamp()
+        )
+        userDocRef.collection("game_history").add(historyData)
+
+        // 2. Update all-time high score document atomically
+        val scoreRef = userDocRef.collection("game_scores").document("stroop_test")
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(scoreRef)
+            val currentHigh = snapshot.getLong("highScore")?.toInt() ?: 0
+            val newHigh = if (finalScore > currentHigh) finalScore else currentHigh
+
+            val data = hashMapOf(
+                "gameName" to "Color Stroop Test",
+                "highScore" to newHigh,
+                "lastUpdated" to FieldValue.serverTimestamp()
+            )
+            transaction.set(scoreRef, data)
+            newHigh
+        }.addOnSuccessListener { updatedHigh ->
+            highScore = updatedHigh
+        }
+    }
 
     fun generateNewChallenge() {
         val word = stroopColors.random()
@@ -1653,9 +1702,7 @@ fun EchoStroopTestScreen(onBackClicked: () -> Unit) {
                 timeLeft--
             }
             isGameActive = false
-            if (score > highScore) {
-                highScore = score
-            }
+            saveGameScoreToFirestore(score)
         }
     }
 
@@ -1902,7 +1949,7 @@ data class TargetPoint(
 @Composable
 fun EchoAimTrainerScreen(onBackClicked: () -> Unit) {
     var score by remember { mutableIntStateOf(0) }
-    var highScore by remember { mutableIntStateOf(1200) }
+    var highScore by remember { mutableIntStateOf(0) }
     var timeLeft by remember { mutableIntStateOf(30) }
     var isGameActive by remember { mutableStateOf(true) }
 
@@ -1912,6 +1959,57 @@ fun EchoAimTrainerScreen(onBackClicked: () -> Unit) {
 
     var canvasSize by remember { mutableStateOf(Offset.Zero) }
     var currentTarget by remember { mutableStateOf<TargetPoint?>(null) }
+
+    val db = FirebaseFirestore.getInstance()
+    val userId = FirebaseAuth.getInstance().currentUser?.uid
+
+    // Load High Score from Firestore
+    LaunchedEffect(Unit) {
+        if (userId != null) {
+            db.collection("users").document(userId)
+                .collection("game_scores").document("aim_trainer")
+                .get()
+                .addOnSuccessListener { doc ->
+                    if (doc != null && doc.exists()) {
+                        highScore = doc.getLong("highScore")?.toInt() ?: 0
+                    }
+                }
+        }
+    }
+
+    fun saveGameScoreToFirestore(finalScore: Int, timeSpent: Int) {
+        if (userId == null) return
+        val userDocRef = db.collection("users").document(userId)
+
+        // 1. Save every attempt into history collection with score + time
+        val historyData = hashMapOf(
+            "gameId" to "aim_trainer",
+            "gameName" to "Aim Trainer",
+            "score" to finalScore,
+            "timeSpent" to timeSpent,
+            "timestamp" to FieldValue.serverTimestamp()
+        )
+        userDocRef.collection("game_history").add(historyData)
+
+        // 2. Update all-time high score document atomically
+        val scoreRef = userDocRef.collection("game_scores").document("aim_trainer")
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(scoreRef)
+            val currentHigh = snapshot.getLong("highScore")?.toInt() ?: 0
+            val newHigh = if (finalScore > currentHigh) finalScore else currentHigh
+
+            val data = hashMapOf(
+                "gameName" to "Aim Trainer",
+                "highScore" to newHigh,
+                "lastTimeSpent" to timeSpent,
+                "lastUpdated" to FieldValue.serverTimestamp()
+            )
+            transaction.set(scoreRef, data)
+            newHigh
+        }.addOnSuccessListener { updatedHigh ->
+            highScore = updatedHigh
+        }
+    }
 
     fun spawnNewTarget() {
         if (canvasSize.x <= 100f || canvasSize.y <= 100f) return
@@ -1930,9 +2028,7 @@ fun EchoAimTrainerScreen(onBackClicked: () -> Unit) {
                 timeLeft--
             }
             isGameActive = false
-            if (score > highScore) {
-                highScore = score
-            }
+            saveGameScoreToFirestore(score, 30 - timeLeft)
         }
     }
 
@@ -2165,7 +2261,7 @@ data class MemoryCard(
 fun EchoMatchPairsScreen(onBackClicked: () -> Unit) {
     val scope = rememberCoroutineScope()
     var score by remember { mutableIntStateOf(0) }
-    var highScore by remember { mutableIntStateOf(600) }
+    var highScore by remember { mutableIntStateOf(0) }
     var moves by remember { mutableIntStateOf(0) }
     var elapsedTime by remember { mutableIntStateOf(0) }
     var isGameActive by remember { mutableStateOf(true) }
@@ -2173,6 +2269,58 @@ fun EchoMatchPairsScreen(onBackClicked: () -> Unit) {
     val emojis = listOf("🍎", "🐶", "🚀", "🎸", "⚽", "🧩")
     val cards = remember { mutableStateListOf<MemoryCard>() }
     var selectedIndices by remember { mutableStateOf<List<Int>>(emptyList()) }
+
+    val db = FirebaseFirestore.getInstance()
+    val userId = FirebaseAuth.getInstance().currentUser?.uid
+
+    // Load High Score (lowest time or highest score) from Firestore
+    LaunchedEffect(Unit) {
+        if (userId != null) {
+            db.collection("users").document(userId)
+                .collection("game_scores").document("match_pairs")
+                .get()
+                .addOnSuccessListener { doc ->
+                    if (doc != null && doc.exists()) {
+                        highScore = doc.getLong("highScore")?.toInt() ?: 0
+                    }
+                }
+        }
+    }
+
+    fun saveGameScoreToFirestore(finalScore: Int, timeSpent: Int, totalMoves: Int) {
+        if (userId == null) return
+        val userDocRef = db.collection("users").document(userId)
+
+        // 1. Save every attempt into history collection with time and moves
+        val historyData = hashMapOf(
+            "gameId" to "match_pairs",
+            "gameName" to "Match The Pairs",
+            "score" to finalScore,
+            "timeSpent" to timeSpent,
+            "moves" to totalMoves,
+            "timestamp" to FieldValue.serverTimestamp()
+        )
+        userDocRef.collection("game_history").add(historyData)
+
+        // 2. Update all-time high score document atomically
+        val scoreRef = userDocRef.collection("game_scores").document("match_pairs")
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(scoreRef)
+            val currentHigh = snapshot.getLong("highScore")?.toInt() ?: 0
+            val newHigh = if (finalScore > currentHigh) finalScore else currentHigh
+
+            val data = hashMapOf(
+                "gameName" to "Match The Pairs",
+                "highScore" to newHigh,
+                "bestTime" to timeSpent,
+                "lastUpdated" to FieldValue.serverTimestamp()
+            )
+            transaction.set(scoreRef, data)
+            newHigh
+        }.addOnSuccessListener { updatedHigh ->
+            highScore = updatedHigh
+        }
+    }
 
     fun setupNewGame() {
         val pairedList = (emojis + emojis).shuffled().mapIndexed { index, symbol ->
@@ -2198,9 +2346,7 @@ fun EchoMatchPairsScreen(onBackClicked: () -> Unit) {
                 elapsedTime++
                 if (cards.isNotEmpty() && cards.all { it.isMatched }) {
                     isGameActive = false
-                    if (score > highScore) {
-                        highScore = score
-                    }
+                    saveGameScoreToFirestore(score, elapsedTime, moves)
                 }
             }
         }
@@ -2308,8 +2454,8 @@ fun EchoMatchPairsScreen(onBackClicked: () -> Unit) {
                             modifier = Modifier.padding(10.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text(text = "MOVES", fontSize = 10.sp, color = EchoSubtextGray, fontWeight = FontWeight.Bold)
-                            Text(text = "$moves", fontSize = 20.sp, color = EchoBlueHeader, fontWeight = FontWeight.Bold)
+                            Text(text = "HIGH SCORE", fontSize = 10.sp, color = EchoSubtextGray, fontWeight = FontWeight.Bold)
+                            Text(text = "$highScore", fontSize = 20.sp, color = EchoBlueHeader, fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -2425,7 +2571,7 @@ fun EchoWordleScreen(onBackClicked: () -> Unit) {
     val context = LocalContext.current
     var targetWord by remember { mutableStateOf(wordleWordBank.random()) }
     var score by remember { mutableIntStateOf(0) }
-    var highScore by remember { mutableIntStateOf(500) }
+    var highScore by remember { mutableIntStateOf(0) }
 
     val guesses = remember { mutableStateListOf<String>() }
     var currentInput by remember { mutableStateOf("") }
@@ -2437,6 +2583,56 @@ fun EchoWordleScreen(onBackClicked: () -> Unit) {
         listOf("A", "S", "D", "F", "G", "H", "J", "K", "L"),
         listOf("ENTER", "Z", "X", "C", "V", "B", "N", "M", "⌫")
     )
+
+    val db = FirebaseFirestore.getInstance()
+    val userId = FirebaseAuth.getInstance().currentUser?.uid
+
+    // Load High Score from Firestore
+    LaunchedEffect(Unit) {
+        if (userId != null) {
+            db.collection("users").document(userId)
+                .collection("game_scores").document("wordle")
+                .get()
+                .addOnSuccessListener { doc ->
+                    if (doc != null && doc.exists()) {
+                        highScore = doc.getLong("highScore")?.toInt() ?: 0
+                    }
+                }
+        }
+    }
+
+    fun saveGameScoreToFirestore(finalScore: Int, guessesUsed: Int) {
+        if (userId == null) return
+        val userDocRef = db.collection("users").document(userId)
+
+        // 1. Save every attempt into history collection with score
+        val historyData = hashMapOf(
+            "gameId" to "wordle",
+            "gameName" to "Wordle",
+            "score" to finalScore,
+            "guessesUsed" to guessesUsed,
+            "timestamp" to FieldValue.serverTimestamp()
+        )
+        userDocRef.collection("game_history").add(historyData)
+
+        // 2. Update all-time high score document atomically
+        val scoreRef = userDocRef.collection("game_scores").document("wordle")
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(scoreRef)
+            val currentHigh = snapshot.getLong("highScore")?.toInt() ?: 0
+            val newHigh = if (finalScore > currentHigh) finalScore else currentHigh
+
+            val data = hashMapOf(
+                "gameName" to "Wordle",
+                "highScore" to newHigh,
+                "lastUpdated" to FieldValue.serverTimestamp()
+            )
+            transaction.set(scoreRef, data)
+            newHigh
+        }.addOnSuccessListener { updatedHigh ->
+            highScore = updatedHigh
+        }
+    }
 
     fun startNewGame() {
         targetWord = wordleWordBank.random()
@@ -2458,10 +2654,11 @@ fun EchoWordleScreen(onBackClicked: () -> Unit) {
             hasWon = true
             isGameOver = true
             score = (7 - guesses.size) * 100
-            if (score > highScore) highScore = score
+            saveGameScoreToFirestore(score, guesses.size)
         } else if (guesses.size >= 6) {
             isGameOver = true
             score = 0
+            saveGameScoreToFirestore(score, guesses.size)
         }
         currentInput = ""
     }
@@ -2751,12 +2948,41 @@ val solutionSudokuBoard = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EchoSudokuScreen(onBackClicked: () -> Unit) {
-    val boardState = remember { mutableStateListOf<SudokuCell>() }
     var selectedCellIndex by remember { mutableStateOf<Int?>(null) }
     var elapsedTime by remember { mutableIntStateOf(0) }
     var isGameActive by remember { mutableStateOf(true) }
     var moveCount by remember { mutableIntStateOf(0) }
     var isSolved by remember { mutableStateOf(false) }
+
+    val boardState = remember { mutableStateListOf<SudokuCell>() }
+
+    val db = FirebaseFirestore.getInstance()
+    val userId = FirebaseAuth.getInstance().currentUser?.uid
+
+    fun saveSudokuScoreToFirestore(timeSpent: Int, totalMoves: Int) {
+        if (userId == null) return
+        val userDocRef = db.collection("users").document(userId)
+
+        // 1. Save every attempt into history collection with time and moves
+        val historyData = hashMapOf(
+            "gameId" to "sudoku",
+            "gameName" to "Sudoku",
+            "timeSpent" to timeSpent,
+            "moves" to totalMoves,
+            "timestamp" to FieldValue.serverTimestamp()
+        )
+        userDocRef.collection("game_history").add(historyData)
+
+        // 2. Update best time document
+        val scoreRef = userDocRef.collection("game_scores").document("sudoku")
+        val data = hashMapOf(
+            "gameName" to "Sudoku",
+            "bestTime" to timeSpent,
+            "moves" to totalMoves,
+            "lastUpdated" to FieldValue.serverTimestamp()
+        )
+        scoreRef.set(data)
+    }
 
     fun setupBoard() {
         boardState.clear()
@@ -2827,6 +3053,7 @@ fun EchoSudokuScreen(onBackClicked: () -> Unit) {
         if (isFilled && !conflictsFound) {
             isSolved = true
             isGameActive = false
+            saveSudokuScoreToFirestore(elapsedTime, moveCount)
         }
     }
 
