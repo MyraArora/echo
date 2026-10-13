@@ -40,6 +40,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.MoreVert
@@ -82,6 +83,7 @@ import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -222,7 +224,8 @@ fun EchoNavigationFlow() {
         )
         5 -> EchoHomeScreen(
             onOpenChat = { flowStep = 6 },
-            onOpenGames = { flowStep = 7 }
+            onOpenGames = { flowStep = 7 },
+            onOpenLeaderboard = { flowStep = 13 }
         )
         6 -> EchoChatScreen(onBackClicked = { flowStep = 5 })
         7 -> EchoGameScreen(
@@ -238,9 +241,11 @@ fun EchoNavigationFlow() {
         10 -> EchoMatchPairsScreen(onBackClicked = { flowStep = 7 })
         11 -> EchoWordleScreen(onBackClicked = { flowStep = 7 })
         12 -> EchoSudokuScreen(onBackClicked = { flowStep = 7 })
+        13 -> EchoLeaderboardScreen(onBackClicked = { flowStep = 5 })
         else -> EchoHomeScreen(
             onOpenChat = { flowStep = 6 },
-            onOpenGames = { flowStep = 7 }
+            onOpenGames = { flowStep = 7 },
+            onOpenLeaderboard = { flowStep = 13 }
         )
     }
 }
@@ -651,7 +656,8 @@ fun TermsCheckbox(isAgreed: Boolean, onCheckedChange: (Boolean) -> Unit) {
 @Composable
 fun EchoHomeScreen(
     onOpenChat: () -> Unit = {},
-    onOpenGames: () -> Unit = {}
+    onOpenGames: () -> Unit = {},
+    onOpenLeaderboard: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var userName by remember { mutableStateOf("User") }
@@ -793,7 +799,7 @@ fun EchoHomeScreen(
                             modifier = Modifier.weight(1f),
                             iconUrl = "https://assets.streamlinehq.com/image/private/w_300,h_300,ar_1/f_auto/v1/icons/business-payments/leaderboard-c2xgbi34v5lkfqcsnn4rls.png/leaderboard-3rvm6vbkyzgye3ova2wwy.png?_a=DATAiZAAZAA0",
                             title = "Leaderboard",
-                            onClick = { Toast.makeText(context, "Leaderboard Clicked", Toast.LENGTH_SHORT).show() }
+                            onClick = { onOpenLeaderboard() }
                         )
                     }
 
@@ -803,15 +809,15 @@ fun EchoHomeScreen(
                     ) {
                         FeatureGridItemUrl(
                             modifier = Modifier.weight(1f),
-                            iconUrl = "https://cdn-icons-png.flaticon.com/512/9259/9259956.png",
-                            title = "Reminders",
+                            iconUrl = "https://cdn-icons-png.flaticon.com/512/883/883407.png",
+                            title = "Medicines",
                             onClick = { Toast.makeText(context, "Reminders Clicked", Toast.LENGTH_SHORT).show() }
                         )
                         FeatureGridItemUrl(
                             modifier = Modifier.weight(1f),
-                            iconUrl = "https://cdn-icons-png.flaticon.com/512/883/883407.png",
-                            title = "Medicines",
-                            onClick = { Toast.makeText(context, "Medicines Clicked", Toast.LENGTH_SHORT).show() }
+                            iconUrl = "https://static.thenounproject.com/png/3203474-200.png",
+                            title = "Stories",
+                            onClick = { Toast.makeText(context, "Stories Clicked", Toast.LENGTH_SHORT).show() }
                         )
                         FeatureGridItemUrl(
                             modifier = Modifier.weight(1f),
@@ -849,6 +855,312 @@ fun EchoHomeScreen(
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
+            }
+        }
+    }
+}
+
+// ==========================================
+// LEADERBOARD SCREEN & RANKING LOGIC
+// ==========================================
+
+data class LeaderboardEntry(
+    val userId: String,
+    val playerName: String,
+    val highScore: Double,
+    val averageScore: Double,
+    val finalRating: Double
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EchoLeaderboardScreen(onBackClicked: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var selectedCategory by remember { mutableStateOf("Overall") }
+    var expandedDropdown by remember { mutableStateOf(false) }
+    var leaderboardEntries = remember { mutableStateListOf<LeaderboardEntry>() }
+    var isLoading by remember { mutableStateOf(true) }
+
+    val categories = listOf(
+        "Overall",
+        "Color Stroop Test",
+        "Aim Trainer",
+        "Match The Pairs",
+        "Wordle",
+        "Sudoku"
+    )
+
+    fun fetchLeaderboardData(category: String) {
+        scope.launch(Dispatchers.IO) {
+            isLoading = true
+            val db = FirebaseFirestore.getInstance()
+            try {
+                val usersSnapshot = db.collection("users").get().await()
+                val entries = mutableListOf<LeaderboardEntry>()
+
+                for (userDoc in usersSnapshot.documents) {
+                    val userId = userDoc.id
+                    val playerName = userDoc.getString("fullName") ?: "Anonymous User"
+
+                    val historySnapshot = db.collection("users").document(userId)
+                        .collection("game_history").get().await()
+
+                    if (historySnapshot.isEmpty) continue
+
+                    val gameScoresMap = mutableMapOf<String, MutableList<Double>>()
+
+                    for (doc in historySnapshot.documents) {
+                        val gameId = doc.getString("gameId") ?: doc.getString("gameName") ?: continue
+                        val score = doc.getDouble("score") ?: doc.getLong("score")?.toDouble() ?: 0.0
+                        gameScoresMap.getOrPut(gameId) { mutableListOf() }.add(score)
+                    }
+
+                    val relevantScores = mutableListOf<Double>()
+                    if (category == "Overall") {
+                        gameScoresMap.values.forEach { relevantScores.addAll(it) }
+                    } else {
+                        val gameKey = when (category) {
+                            "Color Stroop Test" -> "stroop_test"
+                            "Aim Trainer" -> "aim_trainer"
+                            "Match The Pairs" -> "match_pairs"
+                            "Wordle" -> "wordle"
+                            "Sudoku" -> "sudoku"
+                            else -> category
+                        }
+                        gameScoresMap[gameKey]?.let { relevantScores.addAll(it) }
+                            ?: gameScoresMap[category]?.let { relevantScores.addAll(it) }
+                    }
+
+                    if (relevantScores.isNotEmpty()) {
+                        val highScore = relevantScores.maxOrNull() ?: 0.0
+                        val avgScore = relevantScores.average()
+                        // Rank decided based on 2 things: high score (70%) & average (30%)
+                        val finalRating = (highScore * 0.7) + (avgScore * 0.3)
+
+                        entries.add(
+                            LeaderboardEntry(
+                                userId = userId,
+                                playerName = playerName,
+                                highScore = highScore,
+                                averageScore = avgScore,
+                                finalRating = finalRating
+                            )
+                        )
+                    }
+                }
+
+                entries.sortByDescending { it.finalRating }
+
+                withContext(Dispatchers.Main) {
+                    leaderboardEntries.clear()
+                    leaderboardEntries.addAll(entries)
+                    isLoading = false
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("EchoLeaderboard", "Error fetching leaderboard", e)
+                withContext(Dispatchers.Main) { isLoading = false }
+            }
+        }
+    }
+
+    LaunchedEffect(selectedCategory) {
+        fetchLeaderboardData(selectedCategory)
+    }
+
+    Scaffold(
+        containerColor = EchoBgLight,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "Leaderboard",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBackClicked) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { fetchLeaderboardData(selectedCategory) }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh",
+                            tint = Color.White
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = EchoBlueHeader)
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Dropdown Selector for Game Category
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { expandedDropdown = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Category: $selectedCategory",
+                            color = EchoDarkBlueButton,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = null,
+                            tint = EchoDarkBlueButton
+                        )
+                    }
+                }
+
+                DropdownMenu(
+                    expanded = expandedDropdown,
+                    onDismissRequest = { expandedDropdown = false },
+                    modifier = Modifier.fillMaxWidth(0.85f)
+                ) {
+                    categories.forEach { category ->
+                        DropdownMenuItem(
+                            text = { Text(text = category, fontWeight = FontWeight.Medium) },
+                            onClick = {
+                                selectedCategory = category
+                                expandedDropdown = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (isLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = EchoBlueHeader)
+                }
+            } else if (leaderboardEntries.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No players found for this category yet.",
+                        color = EchoSubtextGray,
+                        fontSize = 15.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    itemsIndexed(leaderboardEntries) { index, entry ->
+                        val rank = index + 1
+                        val rankColor = when (rank) {
+                            1 -> Color(0xFFFFD700) // Gold
+                            2 -> Color(0xFFC0C0C0) // Silver
+                            3 -> Color(0xFFCD7F32) // Bronze
+                            else -> EchoDarkBlueButton
+                        }
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(rankColor.copy(alpha = 0.2f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "#$rank",
+                                            color = rankColor,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+
+                                    Column {
+                                        Text(
+                                            text = entry.playerName,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = EchoDarkBlueButton
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "High: ${entry.highScore.toInt()} | Avg: ${entry.averageScore.toInt()}",
+                                            fontSize = 12.sp,
+                                            color = EchoSubtextGray
+                                        )
+                                    }
+                                }
+
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "Rating",
+                                        fontSize = 10.sp,
+                                        color = EchoSubtextGray,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "${entry.finalRating.toInt()}",
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = EchoBlueHeader
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -2273,7 +2585,7 @@ fun EchoMatchPairsScreen(onBackClicked: () -> Unit) {
     val db = FirebaseFirestore.getInstance()
     val userId = FirebaseAuth.getInstance().currentUser?.uid
 
-    // Load High Score (lowest time or highest score) from Firestore
+    // Load High Score from Firestore
     LaunchedEffect(Unit) {
         if (userId != null) {
             db.collection("users").document(userId)
@@ -2963,20 +3275,23 @@ fun EchoSudokuScreen(onBackClicked: () -> Unit) {
         if (userId == null) return
         val userDocRef = db.collection("users").document(userId)
 
-        // 1. Save every attempt into history collection with time and moves
+        // Convert Sudoku completion time into a positive score for leaderboard
+        val computedScore = (2000 - (timeSpent * 5) - (totalMoves * 2)).coerceAtLeast(100).toDouble()
+
         val historyData = hashMapOf(
             "gameId" to "sudoku",
             "gameName" to "Sudoku",
+            "score" to computedScore,
             "timeSpent" to timeSpent,
             "moves" to totalMoves,
             "timestamp" to FieldValue.serverTimestamp()
         )
         userDocRef.collection("game_history").add(historyData)
 
-        // 2. Update best time document
         val scoreRef = userDocRef.collection("game_scores").document("sudoku")
         val data = hashMapOf(
             "gameName" to "Sudoku",
+            "highScore" to computedScore,
             "bestTime" to timeSpent,
             "moves" to totalMoves,
             "lastUpdated" to FieldValue.serverTimestamp()
