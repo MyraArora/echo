@@ -807,7 +807,13 @@ fun EchoHomeScreen(
                             modifier = Modifier.weight(1f),
                             iconUrl = "https://static.thenounproject.com/png/1275974-200.png",
                             title = "Clubhouse",
-                            onClick = { Toast.makeText(context, "Clubhouse Clicked", Toast.LENGTH_SHORT).show() }
+                            onClick = {
+                                val clubhouseIntent = Intent(
+                                    Intent.ACTION_VIEW,
+                                    android.net.Uri.parse("https://meet.google.com/vhr-pjxo-pde")
+                                )
+                                context.startActivity(clubhouseIntent)
+                            }
                         )
                         FeatureGridItemUrl(
                             modifier = Modifier.weight(1f),
@@ -829,9 +835,9 @@ fun EchoHomeScreen(
                         )
                         FeatureGridItemUrl(
                             modifier = Modifier.weight(1f),
-                            iconUrl = "https://static.thenounproject.com/png/3203474-200.png",
-                            title = "Stories",
-                            onClick = { Toast.makeText(context, "Stories Clicked", Toast.LENGTH_SHORT).show() }
+                            iconUrl = "https://static.vecteezy.com/system/resources/previews/002/258/558/non_2x/line-icon-for-exercise-vector.jpg",
+                            title = "Exercise",
+                            onClick = { Toast.makeText(context, "Exercises Clicked", Toast.LENGTH_SHORT).show() }
                         )
                         FeatureGridItemUrl(
                             modifier = Modifier.weight(1f),
