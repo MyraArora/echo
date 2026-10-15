@@ -4076,6 +4076,23 @@ data class EchoMedicine(
     val isChecked: Boolean = false
 )
 
+/**
+ * Older medicine documents may store createdAt as a number, Firestore Timestamp,
+ * Date, or string. Do not use DocumentSnapshot.getLong() directly because it
+ * throws when the stored field is not numeric.
+ */
+private fun readMedicineCreatedAtMillis(
+    doc: com.google.firebase.firestore.DocumentSnapshot
+): Long {
+    return when (val value = doc.get("createdAt")) {
+        is Number -> value.toLong()
+        is com.google.firebase.Timestamp -> value.toDate().time
+        is java.util.Date -> value.time
+        is String -> value.toLongOrNull() ?: 0L
+        else -> 0L
+    }
+}
+
 private const val MEDICINE_CHANNEL_ID = "echo_medicine_reminders"
 
 private fun createMedicineNotificationChannel(context: Context) {
@@ -4100,38 +4117,52 @@ class MedicineReminderReceiver : android.content.BroadcastReceiver() {
         val time = intent.getStringExtra("medicineTime") ?: ""
         val notificationId = intent.getIntExtra("notificationId", (medicineName + time).hashCode())
 
-        // A new scheduled dose starts a fresh unchecked state. Persist this even if
-        // the user does not open the app when the reminder fires.
+        // Each reminder marks the start of a new dose occurrence. Reset the saved
+        // status at the scheduled time, so the unchecked value remains in Firestore
+        // until the user checks off this dose.
         val uid = FirebaseAuth.getInstance().currentUser?.uid
         if (uid != null && medicineId.isNotBlank()) {
-            FirebaseFirestore.getInstance().collection("users").document(uid)
-                .collection("medicines").document(medicineId)
-                .update(
-                    mapOf(
-                        "isChecked" to false,
-                        "checkedAt" to null,
-                        "statusUpdatedAt" to FieldValue.serverTimestamp(),
-                        "lastReminderTime" to time,
-                        "lastReminderAt" to FieldValue.serverTimestamp()
+            val pendingResult = goAsync()
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    FirebaseFirestore.getInstance().collection("users").document(uid)
+                        .collection("medicines").document(medicineId)
+                        .update(
+                            mapOf(
+                                "isChecked" to false,
+                                "checkedAt" to null,
+                                "statusUpdatedAt" to FieldValue.serverTimestamp(),
+                                "lastReminderTime" to time,
+                                "lastReminderAt" to FieldValue.serverTimestamp()
+                            )
+                        ).await()
+                } catch (error: Exception) {
+                    android.util.Log.e(
+                        "EchoMedicineAlarm",
+                        "Could not reset medicine status in Firestore",
+                        error
                     )
-                )
-                .addOnFailureListener { error ->
-                    android.util.Log.e("EchoMedicineAlarm", "Could not reset medicine status", error)
+                } finally {
+                    pendingResult.finish()
                 }
+            }
         }
 
         val notification = androidx.core.app.NotificationCompat.Builder(context, MEDICINE_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("Time for your medicine")
             .setContentText("Please take $medicineName${if (time.isNotBlank()) " · $time" else ""}")
-            .setStyle(androidx.core.app.NotificationCompat.BigTextStyle()
-                .bigText("It's time for $medicineName."))
+            .setStyle(
+                androidx.core.app.NotificationCompat.BigTextStyle()
+                    .bigText("It's time for $medicineName.")
+            )
             .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(notificationId, notification)
-        // AlarmManager alarms are one-shot. Re-arm this dose for the next day.
+
+        // AlarmManager alarms are one-shot. Re-arm this scheduled dose for tomorrow.
         if (medicineId.isNotBlank() && time.isNotBlank()) {
             scheduleDailyMedicineReminder(
                 context,
@@ -4285,7 +4316,7 @@ fun EchoMedicinesScreen(onBackClicked: () -> Unit) {
                         id = doc.id,
                         name = name,
                         times = scheduledTimes,
-                        createdAt = doc.getLong("createdAt") ?: 0L,
+                        createdAt = readMedicineCreatedAtMillis(doc),
                         isChecked = doc.getBoolean("isChecked") ?: false
                     )
                     medicines.add(medicine)
@@ -4315,7 +4346,7 @@ fun EchoMedicinesScreen(onBackClicked: () -> Unit) {
                                 id = doc.id,
                                 name = name,
                                 times = scheduledTimes,
-                                createdAt = doc.getLong("createdAt") ?: 0L,
+                                createdAt = readMedicineCreatedAtMillis(doc),
                                 isChecked = doc.getBoolean("isChecked") ?: false
                             )
                         )
