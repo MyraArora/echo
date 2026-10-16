@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Lock
@@ -76,6 +77,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -207,7 +209,13 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun EchoNavigationFlow() {
-    var flowStep by remember { mutableIntStateOf(0) }
+    // Firebase Authentication persists the signed-in session across app launches.
+    // Start at Home when that session exists instead of replaying onboarding every time.
+    var flowStep by remember {
+        mutableIntStateOf(
+            if (FirebaseAuth.getInstance().currentUser != null) 5 else 0
+        )
+    }
 
     val screen1Url = "https://static.wixstatic.com/media/0cbe0e_f8215ad577eb4f619730bb050a85adb7~mv2.png/v1/fill/w_500,h_1082,al_c,q_90,usm_0.66_1.00_0.01,enc_avif,quality_auto/Echo%20Mobile%20UI%20(5).png"
     val swipeImages = listOf(
@@ -664,7 +672,13 @@ fun TermsCheckbox(isAgreed: Boolean, onCheckedChange: (Boolean) -> Unit) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+private data class CaretakerReminder(
+    val id: String,
+    val title: String,
+    val description: String,
+    val isChecked: Boolean
+)
+
 @Composable
 fun EchoHomeScreen(
     onOpenChat: () -> Unit = {},
@@ -674,20 +688,58 @@ fun EchoHomeScreen(
 ) {
     val context = LocalContext.current
     var userName by remember { mutableStateOf("User") }
+    var caretakerReminders by remember { mutableStateOf<List<CaretakerReminder>>(emptyList()) }
+    var remindersLoadFailed by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid
-        if (uid != null) {
-            FirebaseFirestore.getInstance().collection("users").document(uid)
-                .get()
-                .addOnSuccessListener { document ->
-                    if (document != null && document.exists()) {
-                        val fetchedName = document.getString("fullName")
-                        if (!fetchedName.isNullOrEmpty()) {
-                            userName = fetchedName
-                        }
+    val signedInUid = FirebaseAuth.getInstance().currentUser?.uid
+
+    LaunchedEffect(signedInUid) {
+        val uid = signedInUid ?: return@LaunchedEffect
+        FirebaseFirestore.getInstance().collection("users").document(uid)
+            .get()
+            .addOnSuccessListener { document ->
+                val fetchedName = document.getString("fullName")
+                if (!fetchedName.isNullOrEmpty()) userName = fetchedName
+            }
+    }
+
+    // Listen to the signed-in senior's reminder subcollection. Dispose the listener
+    // when this screen leaves composition so it cannot accumulate duplicate listeners.
+    DisposableEffect(signedInUid) {
+        val uid = signedInUid
+        if (uid == null) {
+            caretakerReminders = emptyList()
+            onDispose { }
+        } else {
+            val registration = FirebaseFirestore.getInstance()
+                .collection("users").document(uid)
+                .collection("caretaker reminders")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        remindersLoadFailed = true
+                        return@addSnapshotListener
                     }
+                    remindersLoadFailed = false
+                    caretakerReminders = snapshot?.documents?.map { doc ->
+                        CaretakerReminder(
+                            id = doc.id,
+                            title = doc.getString("title")
+                                ?: doc.getString("reminder")
+                                ?: doc.getString("text")
+                                ?: doc.getString("message")
+                                ?: "Reminder",
+                            description = doc.getString("description")
+                                ?: doc.getString("details")
+                                ?: doc.getString("message")
+                                ?: "",
+                            isChecked = doc.getBoolean("isChecked")
+                                ?: doc.getBoolean("completed")
+                                ?: doc.getBoolean("checked")
+                                ?: false
+                        )
+                    }?.sortedBy { it.isChecked } ?: emptyList()
                 }
+            onDispose { registration.remove() }
         }
     }
 
@@ -844,6 +896,161 @@ fun EchoHomeScreen(
                             title = "Jokes",
                             onClick = { Toast.makeText(context, "Jokes Clicked", Toast.LENGTH_SHORT).show() }
                         )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Caretaker reminders section sits between the six-button panel and quote carousel.
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF172B4D)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(RoundedCornerShape(15.dp))
+                                    .background(Color(0xFFFFC857)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Notifications,
+                                    contentDescription = "Caretaker reminders",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(25.dp)
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "A note from your caretaker",
+                                    fontFamily = FontFamily.Serif,
+                                    fontSize = 19.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFF7F3E8)
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = "Small things that matter today",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFFB8C8D9)
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Color(0xFF294563))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = "${caretakerReminders.count { !it.isChecked }} left",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFFC8F1E8)
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(Color(0xFF35506D))
+                        )
+
+                        when {
+                            remindersLoadFailed -> Text(
+                                text = "Reminders couldn't be loaded. Check your connection and try again.",
+                                color = Color(0xFFFFC7BE),
+                                fontSize = 13.sp
+                            )
+                            caretakerReminders.isEmpty() -> Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color(0xFF203957))
+                                    .padding(15.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Text(
+                                    text = "You're all caught up",
+                                    fontFamily = FontFamily.Serif,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFFF7F3E8)
+                                )
+                                Text(
+                                    text = "New reminders from your caretaker will appear here.",
+                                    color = Color(0xFFB8C8D9),
+                                    fontSize = 12.sp
+                                )
+                            }
+                            else -> caretakerReminders.forEach { reminder ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(15.dp))
+                                        .background(if (reminder.isChecked) Color(0xFF203B43) else Color(0xFF203957))
+                                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = reminder.isChecked,
+                                        onCheckedChange = { checked ->
+                                            val uid = FirebaseAuth.getInstance().currentUser?.uid
+                                            if (uid != null) {
+                                                FirebaseFirestore.getInstance()
+                                                    .collection("users").document(uid)
+                                                    .collection("caretaker reminders").document(reminder.id)
+                                                    .update(
+                                                        mapOf(
+                                                            "isChecked" to checked,
+                                                            "completed" to checked,
+                                                            "checkedAt" to if (checked) FieldValue.serverTimestamp() else null
+                                                        )
+                                                    )
+                                                    .addOnFailureListener {
+                                                        Toast.makeText(context, "Couldn't update reminder. Try again.", Toast.LENGTH_SHORT).show()
+                                                    }
+                                            }
+                                        },
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = Color(0xFF57B7A6),
+                                            uncheckedColor = Color(0xFFB8C8D9),
+                                            checkmarkColor = Color(0xFF172B4D)
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.width(7.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = reminder.title,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (reminder.isChecked) Color(0xFF9DB5B7) else Color(0xFFF7F3E8),
+                                            textDecoration = if (reminder.isChecked) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
+                                        )
+                                        if (reminder.description.isNotBlank() && reminder.description != reminder.title) {
+                                            Spacer(modifier = Modifier.height(3.dp))
+                                            Text(
+                                                text = reminder.description,
+                                                fontSize = 12.sp,
+                                                color = Color(0xFFB8C8D9)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
