@@ -534,11 +534,11 @@ fun EchoSettingsScreen(
                 Column(modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
                     Text(
                         if (isTerms) {
-                            "Echo is intended to support everyday wellbeing and connection. Use the app responsibly and keep your account credentials private. Information and reminders shown in the app may depend on your account and your caretaker's entries. Echo is not a substitute for professional medical advice or emergency services.\n\n" +
-                                    "Before release, replace this starter text with the approved, complete Terms & Conditions, including service limitations, account rules, and contact details."
+                            "By using Echo, you agree to use the app lawfully and responsibly. Echo may provide AI-powered conversations, saved information, and medicine reminders, but AI responses may be inaccurate and medicine reminders are for tracking purposes only; they do not replace professional medical advice or guarantee notification delivery. You are responsible for maintaining your account security and checking the accuracy of information and schedules you enter. Some features depend on third-party services and device permissions. We may update, modify, or discontinue features when necessary. To the extent permitted by applicable law, Echo is provided without a guarantee of uninterrupted or error-free operation, without limiting any rights that cannot legally be excluded. " +
+                                    "   "
                         } else {
-                            "Echo may store account details such as your name, game results, medicine reminders, caretaker reminders, and session records in Firebase to provide its features. The exact information collected, retention period, sharing practices, and deletion process must be described in the final policy.\n\n" +
-                                    "Before release, replace this starter text with the approved Privacy Policy that matches the app's actual Firebase and backend data flows, including audio/session processing where applicable."
+                            "Echo respects your privacy. We may collect and store information such as your name, email address, saved information, medicine schedules, and content you provide through voice or other features to operate and improve the app. We may use third-party services, including Firebase and AI providers, to support authentication, storage, and app functionality. We take reasonable steps to protect your information but cannot guarantee absolute security. You may manage available saved data and device permissions through the app or your device settings. To request access to or deletion of your personal information, contact [your support email]. By using Echo, you acknowledge this policy. " +
+                                    "   "
                         },
                         color = softText,
                         fontSize = 14.sp,
