@@ -26,6 +26,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -252,7 +253,8 @@ fun EchoNavigationFlow() {
             onOpenGames = { flowStep = 7 },
             onOpenLeaderboard = { flowStep = 13 },
             onOpenMedicines = { flowStep = 14 },
-            onOpenSettings = { flowStep = 15 }
+            onOpenSettings = { flowStep = 15 },
+            onOpenHistory = { flowStep = 16 }
         )
         6 -> EchoChatScreen(onBackClicked = { flowStep = 5 })
         7 -> EchoGameScreen(
@@ -274,12 +276,14 @@ fun EchoNavigationFlow() {
             onBackClicked = { flowStep = 5 },
             onSignedOut = { flowStep = 3 }
         )
+        16 -> EchoGlobalFactsScreen(onBackClicked = { flowStep = 5 })
         else -> EchoHomeScreen(
             onOpenChat = { flowStep = 6 },
             onOpenGames = { flowStep = 7 },
             onOpenLeaderboard = { flowStep = 13 },
             onOpenMedicines = { flowStep = 14 },
-            onOpenSettings = { flowStep = 15 }
+            onOpenSettings = { flowStep = 15 },
+            onOpenHistory = { flowStep = 16 }
         )
     }
 }
@@ -599,8 +603,38 @@ fun FullScreenImage(url: String, onClick: () -> Unit) {
 @Composable
 fun SwipeSection(imageUrls: List<String>, onFinishedSwiping: () -> Unit) {
     val pagerState = rememberPagerState(pageCount = { imageUrls.size })
+    val isLastPage = imageUrls.isNotEmpty() && pagerState.currentPage == imageUrls.lastIndex
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            // On the final swipe page, tapping anywhere continues to the next screen.
+            .pointerInput(isLastPage) {
+                detectTapGestures {
+                    if (isLastPage) onFinishedSwiping()
+                }
+            }
+            // A left swipe on the final page continues, rather than leaving the user stuck
+            // on the pager's last page where there is no next page to swipe to.
+            .pointerInput(isLastPage) {
+                var totalDrag = 0f
+                detectHorizontalDragGestures(
+                    onHorizontalDrag = { change, dragAmount ->
+                        if (isLastPage) {
+                            totalDrag += dragAmount
+                            change.consume()
+                        }
+                    },
+                    onDragEnd = {
+                        if (isLastPage && totalDrag < -80.dp.toPx()) {
+                            onFinishedSwiping()
+                        }
+                        totalDrag = 0f
+                    },
+                    onDragCancel = { totalDrag = 0f }
+                )
+            }
+    ) {
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize()
@@ -612,19 +646,6 @@ fun SwipeSection(imageUrls: List<String>, onFinishedSwiping: () -> Unit) {
                 contentScale = ContentScale.Crop
             )
         }
-        Text(
-            text = if (pagerState.currentPage == imageUrls.size - 1) "Tap to continue" else "Swipe ->",
-            color = Color.White,
-            fontSize = 16.sp,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 40.dp)
-                .clickable {
-                    if (pagerState.currentPage == imageUrls.size - 1) {
-                        onFinishedSwiping()
-                    }
-                }
-        )
     }
 }
 
@@ -1010,7 +1031,8 @@ fun EchoHomeScreen(
     onOpenGames: () -> Unit = {},
     onOpenLeaderboard: () -> Unit = {},
     onOpenMedicines: () -> Unit = {},
-    onOpenSettings: () -> Unit = {}
+    onOpenSettings: () -> Unit = {},
+    onOpenHistory: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var userName by remember { mutableStateOf("User") }
@@ -1110,16 +1132,10 @@ fun EchoHomeScreen(
                             )
                         }
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            HeaderIconButtonUrl(
-                                imageUrl = "https://cdn-icons-png.flaticon.com/512/1436/1436627.png",
-                                onClick = { Toast.makeText(context, "History Clicked", Toast.LENGTH_SHORT).show() }
-                            )
-                            HeaderIconButtonUrl(
-                                imageUrl = "https://cdn-icons-png.flaticon.com/512/1827/1827301.png",
-                                onClick = { Toast.makeText(context, "Notifications Clicked", Toast.LENGTH_SHORT).show() }
-                            )
-                        }
+                        HeaderIconButtonUrl(
+                            imageUrl = "https://cdn-icons-png.flaticon.com/512/1436/1436627.png",
+                            onClick = onOpenHistory
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -1172,60 +1188,48 @@ fun EchoHomeScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        FeatureGridItemUrl(
-                            modifier = Modifier.weight(1f),
-                            iconUrl = "https://cdn-icons-png.flaticon.com/512/7708/7708371.png",
-                            title = "Games",
-                            onClick = { onOpenGames() }
-                        )
-                        FeatureGridItemUrl(
-                            modifier = Modifier.weight(1f),
-                            iconUrl = "https://static.thenounproject.com/png/1275974-200.png",
-                            title = "Clubhouse",
-                            onClick = {
-                                val clubhouseIntent = Intent(
-                                    Intent.ACTION_VIEW,
-                                    android.net.Uri.parse("https://meet.google.com/vhr-pjxo-pde")
-                                )
-                                context.startActivity(clubhouseIntent)
-                            }
-                        )
-                        FeatureGridItemUrl(
-                            modifier = Modifier.weight(1f),
-                            iconUrl = "https://assets.streamlinehq.com/image/private/w_300,h_300,ar_1/f_auto/v1/icons/business-payments/leaderboard-c2xgbi34v5lkfqcsnn4rls.png/leaderboard-3rvm6vbkyzgye3ova2wwy.png?_a=DATAiZAAZAA0",
-                            title = "Leaderboard",
-                            onClick = { onOpenLeaderboard() }
-                        )
-                    }
+                // Second full-width image panel replaces the Games tile.
+                AsyncImage(
+                    model = "https://static.wixstatic.com/media/0cbe0e_ccc747bcb62d47a3bff83a1268072360~mv2.png/v1/fill/w_902,h_368,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/0cbe0e_ccc747bcb62d47a3bff83a1268072360~mv2.png",
+                    contentDescription = "Explore Echo",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { onOpenGames() },
+                    contentScale = ContentScale.Crop
+                )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        FeatureGridItemUrl(
-                            modifier = Modifier.weight(1f),
-                            iconUrl = "https://cdn-icons-png.flaticon.com/512/883/883407.png",
-                            title = "Medicines",
-                            onClick = { onOpenMedicines() }
-                        )
-                        FeatureGridItemUrl(
-                            modifier = Modifier.weight(1f),
-                            iconUrl = "https://static.thenounproject.com/png/3203474-200.png",
-                            title = "Stories",
-                            onClick = { Toast.makeText(context, "Stories Clicked", Toast.LENGTH_SHORT).show() }
-                        )
-                        FeatureGridItemUrl(
-                            modifier = Modifier.weight(1f),
-                            iconUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSu94P3xVarIOEwDyxZy11BBAP9ZkelKbetT3C0gi424TnO68nsRQAb50w&s=10",
-                            title = "Jokes",
-                            onClick = { Toast.makeText(context, "Jokes Clicked", Toast.LENGTH_SHORT).show() }
-                        )
-                    }
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    FeatureGridItemUrl(
+                        modifier = Modifier.weight(1f),
+                        iconUrl = "https://static.thenounproject.com/png/1275974-200.png",
+                        title = "Clubhouse",
+                        onClick = {
+                            val clubhouseIntent = Intent(
+                                Intent.ACTION_VIEW,
+                                android.net.Uri.parse("https://meet.google.com/vhr-pjxo-pde")
+                            )
+                            context.startActivity(clubhouseIntent)
+                        }
+                    )
+                    FeatureGridItemUrl(
+                        modifier = Modifier.weight(1f),
+                        iconUrl = "https://assets.streamlinehq.com/image/private/w_300,h_300,ar_1/f_auto/v1/icons/business-payments/leaderboard-c2xgbi34v5lkfqcsnn4rls.png/leaderboard-3rvm6vbkyzgye3ova2wwy.png?_a=DATAiZAAZAA0",
+                        title = "Leaderboard",
+                        onClick = { onOpenLeaderboard() }
+                    )
+                    FeatureGridItemUrl(
+                        modifier = Modifier.weight(1f),
+                        iconUrl = "https://cdn-icons-png.flaticon.com/512/883/883407.png",
+                        title = "Medicines",
+                        onClick = { onOpenMedicines() }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
@@ -1250,7 +1254,7 @@ fun EchoHomeScreen(
                                 modifier = Modifier
                                     .size(46.dp)
                                     .clip(RoundedCornerShape(15.dp))
-                                    .background(Color(0xFF2F8F83)),
+                                    .background(Color(0xFFFFD166)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -1736,6 +1740,129 @@ data class Message(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+fun EchoGlobalFactsScreen(onBackClicked: () -> Unit) {
+    val context = LocalContext.current
+    val db = FirebaseFirestore.getInstance()
+    val uid = FirebaseAuth.getInstance().currentUser?.uid
+    var facts by remember(uid) { mutableStateOf<List<String>>(emptyList()) }
+    var loading by remember(uid) { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf(false) }
+    var factPendingDeletion by remember { mutableStateOf<String?>(null) }
+    var deleting by remember { mutableStateOf(false) }
+
+    DisposableEffect(uid) {
+        if (uid == null) {
+            loading = false
+            onDispose { }
+        } else {
+            val registration = db.collection("users").document(uid)
+                .addSnapshotListener { document, error ->
+                    if (error != null) {
+                        loadError = true
+                        loading = false
+                        return@addSnapshotListener
+                    }
+                    loadError = false
+                    facts = (document?.get("globalFacts") as? List<*>)
+                        ?.filterIsInstance<String>() ?: emptyList()
+                    loading = false
+                }
+            onDispose { registration.remove() }
+        }
+    }
+
+    val navy = Color(0xFF172B4D)
+    val cardColor = Color(0xFF203957)
+    val teal = Color(0xFF57B7A6)
+    val cream = Color(0xFFF7F3E8)
+
+    Scaffold(
+        containerColor = navy,
+        topBar = {
+            TopAppBar(
+                title = { Text("Saved Global Facts", color = cream, fontWeight = FontWeight.SemiBold) },
+                navigationIcon = {
+                    IconButton(onClick = onBackClicked) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = cream)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = navy)
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                "These are the facts Echo saves for future chats. Delete anything you don't want remembered.",
+                color = Color(0xFFB8C8D9), fontSize = 14.sp
+            )
+            when {
+                loading -> Box(Modifier.fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = teal)
+                }
+                loadError -> Text("Saved facts couldn't be loaded. Check your connection and try again.", color = Color(0xFFFFC7BE))
+                uid == null -> Text("Sign in to view saved facts.", color = cream)
+                facts.isEmpty() -> Card(colors = CardDefaults.cardColors(containerColor = cardColor), shape = RoundedCornerShape(18.dp)) {
+                    Text("No global facts saved yet.", color = cream, modifier = Modifier.padding(18.dp))
+                }
+                else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    itemsIndexed(facts, key = { index, fact -> "$index-$fact" }) { _, fact ->
+                        Card(colors = CardDefaults.cardColors(containerColor = cardColor), shape = RoundedCornerShape(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(fact, color = cream, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                IconButton(onClick = { factPendingDeletion = fact }) {
+                                    Icon(Icons.Default.DeleteOutline, contentDescription = "Delete saved fact", tint = Color(0xFFFFA6A6))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    factPendingDeletion?.let { fact ->
+        AlertDialog(
+            onDismissRequest = { if (!deleting) factPendingDeletion = null },
+            containerColor = cardColor,
+            title = { Text("Delete saved fact?", color = cream) },
+            text = { Text("Echo will no longer use this saved fact in future chats.", color = Color(0xFFB8C8D9)) },
+            confirmButton = {
+                TextButton(enabled = !deleting, onClick = {
+                    val currentUid = uid
+                    if (currentUid == null) {
+                        factPendingDeletion = null
+                    } else {
+                        deleting = true
+                        db.collection("users").document(currentUid)
+                            .update("globalFacts", FieldValue.arrayRemove(fact))
+                            .addOnSuccessListener {
+                                deleting = false
+                                factPendingDeletion = null
+                            }
+                            .addOnFailureListener {
+                                deleting = false
+                                Toast.makeText(context, "Couldn't delete that fact. Try again.", Toast.LENGTH_SHORT).show()
+                            }
+                    }
+                }) { Text(if (deleting) "Deleting…" else "Delete", color = Color(0xFFFFA6A6)) }
+            },
+            dismissButton = {
+                TextButton(enabled = !deleting, onClick = { factPendingDeletion = null }) {
+                    Text("Cancel", color = cream)
+                }
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 fun EchoChatScreen(onBackClicked: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1877,11 +2004,24 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
                     "$sender: ${it.text}"
                 }
 
+                val existingFacts = try {
+                    val doc = FirebaseFirestore.getInstance().collection("users").document(userUid).get().await()
+                    (doc.get("globalFacts") as? List<*>)?.filterIsInstance<String>() ?: savedGlobalFacts.toList()
+                } catch (_: Exception) {
+                    savedGlobalFacts.toList()
+                }
+                val existingFactsText = if (existingFacts.isEmpty()) "(none saved yet)" else existingFacts.joinToString("\n") { "- $it" }
+
                 val prompt = """
                     Analyze this conversation between a user and Echo.
-                    Extract only useful, reasonably stable facts or preferences explicitly stated by the user.
-                    Do not infer sensitive traits. Return only bullet points, each starting with '* '.
-                    If there are no new meaningful facts, return exactly NONE.
+                    First, decide whether the conversation contains any useful, significant, reasonably stable facts or preferences explicitly stated by the user.
+                    Second, compare every candidate against the existing saved global facts below. Do NOT return a fact if it is already present, says the same thing in different words, is a paraphrase, or is merely a more specific/reworded version of an existing fact unless it adds genuinely new information.
+                    Common profile details such as the user's name must not be repeated if already saved.
+                    Do not infer sensitive traits. Return only genuinely new facts as bullet points, each starting with '* '.
+                    If no significant new fact remains after checking existing facts, return exactly NONE.
+
+                    Existing saved global facts:
+                    $existingFactsText
 
                     Conversation:
                     $fullConversation
@@ -1900,7 +2040,7 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
                     put("model", GROQ_CHAT_MODEL)
                     put("messages", JSONArray().apply {
                         put(JSONObject().put("role", "system").put("content",
-                            "Extract stable user facts only when explicitly stated. Return bullet points beginning with * or exactly NONE. Do not infer sensitive traits."))
+                            "Extract only significant, stable user facts explicitly stated by the user. Compare each candidate against the existing saved global facts supplied in the user message, including semantic duplicates and paraphrases. Return only facts that are genuinely new, as bullet points beginning with *; if none remain, return exactly NONE. Never infer sensitive traits."))
                         put(JSONObject().put("role", "user").put("content", prompt))
                     })
                     put("temperature", 0.1)
@@ -1921,16 +2061,32 @@ fun EchoChatScreen(onBackClicked: () -> Unit) {
                         .trim()
 
                     if (rawText.isNotBlank() && !rawText.equals("NONE", ignoreCase = true)) {
+                        val existingNormalized = existingFacts.map {
+                            it.lowercase(Locale.ROOT)
+                                .replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
+                                .replace(Regex("\\s+"), " ")
+                                .trim()
+                        }.toSet()
                         val bulletPoints = rawText.lines()
                             .map { it.trim().removePrefix("*").removePrefix("-").trim() }
                             .filter { it.isNotBlank() && !it.equals("NONE", ignoreCase = true) }
                             .distinct()
+                            .filter { fact ->
+                                val normalized = fact.lowercase(Locale.ROOT)
+                                    .replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
+                                    .replace(Regex("\\s+"), " ")
+                                    .trim()
+                                normalized.isNotBlank() && normalized !in existingNormalized
+                            }
 
                         if (bulletPoints.isNotEmpty()) {
-                            FirebaseFirestore.getInstance().collection("users").document(userUid)
+                            val updateTask = FirebaseFirestore.getInstance().collection("users").document(userUid)
                                 .update("globalFacts", FieldValue.arrayUnion(*bulletPoints.toTypedArray()))
+                            updateTask.await()
                             withContext(Dispatchers.Main) {
-                                bulletPoints.forEach { fact -> if (!savedGlobalFacts.contains(fact)) savedGlobalFacts.add(fact) }
+                                bulletPoints.forEach { fact ->
+                                    if (savedGlobalFacts.none { it.equals(fact, ignoreCase = true) }) savedGlobalFacts.add(fact)
+                                }
                             }
                         }
                     }
