@@ -57,6 +57,12 @@ import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.PrivacyTip
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Person
@@ -96,6 +102,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -243,7 +251,8 @@ fun EchoNavigationFlow() {
             onOpenChat = { flowStep = 6 },
             onOpenGames = { flowStep = 7 },
             onOpenLeaderboard = { flowStep = 13 },
-            onOpenMedicines = { flowStep = 14 }
+            onOpenMedicines = { flowStep = 14 },
+            onOpenSettings = { flowStep = 15 }
         )
         6 -> EchoChatScreen(onBackClicked = { flowStep = 5 })
         7 -> EchoGameScreen(
@@ -261,12 +270,313 @@ fun EchoNavigationFlow() {
         12 -> EchoSudokuScreen(onBackClicked = { flowStep = 7 })
         13 -> EchoLeaderboardScreen(onBackClicked = { flowStep = 5 })
         14 -> EchoMedicinesScreen(onBackClicked = { flowStep = 5 })
+        15 -> EchoSettingsScreen(
+            onBackClicked = { flowStep = 5 },
+            onSignedOut = { flowStep = 3 }
+        )
         else -> EchoHomeScreen(
             onOpenChat = { flowStep = 6 },
             onOpenGames = { flowStep = 7 },
             onOpenLeaderboard = { flowStep = 13 },
-            onOpenMedicines = { flowStep = 14 }
+            onOpenMedicines = { flowStep = 14 },
+            onOpenSettings = { flowStep = 15 }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EchoSettingsScreen(
+    onBackClicked: () -> Unit,
+    onSignedOut: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val auth = FirebaseAuth.getInstance()
+    val db = FirebaseFirestore.getInstance()
+    val uid = auth.currentUser?.uid
+
+    var name by remember { mutableStateOf("") }
+    var nameInput by remember { mutableStateOf("") }
+    var editingName by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showSignOutConfirm by remember { mutableStateOf(false) }
+    var policyPage by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    val navy = Color(0xFF172B4D)
+    val teal = Color(0xFF57B7A6)
+    val cardColor = Color(0xFF203957)
+    val softText = Color(0xFFB8C8D9)
+
+    LaunchedEffect(uid) {
+        if (uid != null) {
+            db.collection("users").document(uid).get()
+                .addOnSuccessListener { doc ->
+                    val current = doc.getString("fullName") ?: auth.currentUser?.displayName ?: "User"
+                    name = current
+                    nameInput = current
+                }
+                .addOnFailureListener {
+                    name = auth.currentUser?.displayName ?: "User"
+                    nameInput = name
+                }
+        }
+    }
+
+    Scaffold(
+        containerColor = navy,
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings", color = Color(0xFFF7F3E8), fontWeight = FontWeight.SemiBold) },
+                navigationIcon = {
+                    IconButton(onClick = onBackClicked) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color(0xFFF7F3E8))
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = navy)
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text("Your account", color = teal, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+            Card(colors = CardDefaults.cardColors(containerColor = cardColor), shape = RoundedCornerShape(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier.size(48.dp).clip(CircleShape).background(Color(0xFF31566D)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Person, contentDescription = null, tint = teal, modifier = Modifier.size(27.dp))
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(name.ifBlank { "Your name" }, color = Color(0xFFF7F3E8), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Personalise your Echo profile", color = softText, fontSize = 12.sp)
+                    }
+                    IconButton(onClick = { nameInput = name; editingName = true }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Change name", tint = teal)
+                    }
+                }
+            }
+
+            Text("LEGAL & PRIVACY", color = teal, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+            SettingsOptionCard(
+                title = "Terms & Conditions",
+                subtitle = "Read the terms for using Echo",
+                icon = { Icon(Icons.Default.Description, contentDescription = null, tint = teal) },
+                onClick = { policyPage = "terms" },
+                cardColor = cardColor,
+                titleColor = Color(0xFFF7F3E8),
+                subtitleColor = softText
+            )
+            SettingsOptionCard(
+                title = "Privacy Policy",
+                subtitle = "Learn how your information is handled",
+                icon = { Icon(Icons.Default.PrivacyTip, contentDescription = null, tint = teal) },
+                onClick = { policyPage = "privacy" },
+                cardColor = cardColor,
+                titleColor = Color(0xFFF7F3E8),
+                subtitleColor = softText
+            )
+
+            Text("DATA & ACCOUNT", color = teal, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+            SettingsOptionCard(
+                title = "Delete saved history",
+                subtitle = "Remove saved game results and session records",
+                icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = Color(0xFFFFA6A6)) },
+                onClick = { showDeleteConfirm = true },
+                cardColor = cardColor,
+                titleColor = Color(0xFFF7F3E8),
+                subtitleColor = softText
+            )
+            SettingsOptionCard(
+                title = "Sign out",
+                subtitle = "Sign out of this Echo account on this device",
+                icon = { Icon(Icons.Default.Logout, contentDescription = null, tint = Color(0xFFFFC078)) },
+                onClick = { showSignOutConfirm = true },
+                cardColor = cardColor,
+                titleColor = Color(0xFFF7F3E8),
+                subtitleColor = softText
+            )
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+
+    if (editingName) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) editingName = false },
+            containerColor = cardColor,
+            title = { Text("Change your name", color = Color(0xFFF7F3E8)) },
+            text = {
+                OutlinedTextField(
+                    value = nameInput,
+                    onValueChange = { nameInput = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    enabled = !busy,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color(0xFFF7F3E8),
+                        unfocusedTextColor = Color(0xFFF7F3E8),
+                        focusedBorderColor = teal,
+                        unfocusedBorderColor = softText,
+                        focusedLabelColor = teal,
+                        unfocusedLabelColor = softText,
+                        cursorColor = teal
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(enabled = !busy && nameInput.isNotBlank() && uid != null, onClick = {
+                    val cleaned = nameInput.trim()
+                    busy = true
+                    scope.launch {
+                        try {
+                            db.collection("users").document(uid!!).update("fullName", cleaned).await()
+                            auth.currentUser?.updateProfile(
+                                com.google.firebase.auth.UserProfileChangeRequest.Builder().setDisplayName(cleaned).build()
+                            )?.await()
+                            name = cleaned
+                            editingName = false
+                            Toast.makeText(context, "Name updated", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Couldn't update your name. Please try again.", Toast.LENGTH_LONG).show()
+                        } finally { busy = false }
+                    }
+                }) { Text(if (busy) "Saving…" else "Save", color = teal) }
+            },
+            dismissButton = { TextButton(onClick = { editingName = false }) { Text("Cancel", color = softText) } }
+        )
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) showDeleteConfirm = false },
+            containerColor = cardColor,
+            title = { Text("Delete saved history?", color = Color(0xFFF7F3E8)) },
+            text = { Text("This permanently deletes your saved game history and session records. Your account, medicines, and caretaker reminders will not be deleted.", color = softText) },
+            confirmButton = {
+                TextButton(enabled = !busy && uid != null, onClick = {
+                    busy = true
+                    scope.launch {
+                        try {
+                            val userRef = db.collection("users").document(uid!!)
+                            for (collectionName in listOf("game_history", "sessions")) {
+                                val snapshot = userRef.collection(collectionName).get().await()
+                                for (document in snapshot.documents) {
+                                    // Session records can reference uploaded audio in Firebase Storage.
+                                    // Delete that object too so "delete history" does not leave the
+                                    // associated audio behind. A missing object should not block cleanup.
+                                    if (collectionName == "sessions") {
+                                        val audioPath = document.getString("audio_gcs_path")
+                                        if (!audioPath.isNullOrBlank()) {
+                                            try {
+                                                FirebaseStorage.getInstance("gs://echo-c1d62.firebasestorage.app")
+                                                    .reference.child(audioPath).delete().await()
+                                            } catch (_: Exception) {
+                                                // Continue deleting the Firestore record if the audio
+                                                // object is already absent or cannot be reached.
+                                            }
+                                        }
+                                    }
+                                    document.reference.delete().await()
+                                }
+                            }
+                            showDeleteConfirm = false
+                            Toast.makeText(context, "Saved history deleted", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Some history could not be deleted. Please try again.", Toast.LENGTH_LONG).show()
+                        } finally { busy = false }
+                    }
+                }) { Text(if (busy) "Deleting…" else "Delete history", color = Color(0xFFFFA6A6)) }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel", color = softText) } }
+        )
+    }
+
+    if (showSignOutConfirm) {
+        AlertDialog(
+            onDismissRequest = { showSignOutConfirm = false },
+            containerColor = cardColor,
+            title = { Text("Sign out?", color = Color(0xFFF7F3E8)) },
+            text = { Text("You'll need to sign in again to access your account.", color = softText) },
+            confirmButton = {
+                TextButton(onClick = {
+                    auth.signOut()
+                    showSignOutConfirm = false
+                    onSignedOut()
+                }) { Text("Sign out", color = Color(0xFFFFC078)) }
+            },
+            dismissButton = { TextButton(onClick = { showSignOutConfirm = false }) { Text("Cancel", color = softText) } }
+        )
+    }
+
+    policyPage?.let { page ->
+        val isTerms = page == "terms"
+        AlertDialog(
+            onDismissRequest = { policyPage = null },
+            containerColor = cardColor,
+            title = { Text(if (isTerms) "Terms & Conditions" else "Privacy Policy", color = Color(0xFFF7F3E8)) },
+            text = {
+                Column(modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                    Text(
+                        if (isTerms) {
+                            "Echo is intended to support everyday wellbeing and connection. Use the app responsibly and keep your account credentials private. Information and reminders shown in the app may depend on your account and your caretaker's entries. Echo is not a substitute for professional medical advice or emergency services.\n\n" +
+                                    "Before release, replace this starter text with the approved, complete Terms & Conditions, including service limitations, account rules, and contact details."
+                        } else {
+                            "Echo may store account details such as your name, game results, medicine reminders, caretaker reminders, and session records in Firebase to provide its features. The exact information collected, retention period, sharing practices, and deletion process must be described in the final policy.\n\n" +
+                                    "Before release, replace this starter text with the approved Privacy Policy that matches the app's actual Firebase and backend data flows, including audio/session processing where applicable."
+                        },
+                        color = softText,
+                        fontSize = 14.sp,
+                        lineHeight = 21.sp
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { policyPage = null }) { Text("Close", color = teal) } }
+        )
+    }
+}
+
+@Composable
+private fun SettingsOptionCard(
+    title: String,
+    subtitle: String,
+    icon: @Composable () -> Unit,
+    onClick: () -> Unit,
+    cardColor: Color,
+    titleColor: Color,
+    subtitleColor: Color
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = cardColor),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 15.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(13.dp)
+        ) {
+            Box(
+                modifier = Modifier.size(42.dp).clip(RoundedCornerShape(13.dp)).background(Color(0xFF294961)),
+                contentAlignment = Alignment.Center
+            ) { icon() }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, color = titleColor, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, color = subtitleColor, fontSize = 12.sp, lineHeight = 16.sp)
+            }
+            Text("›", color = subtitleColor, fontSize = 25.sp, lineHeight = 25.sp)
+        }
     }
 }
 
@@ -369,6 +679,7 @@ fun SignInScreen(onNavigateToSignUp: () -> Unit, onLoginSuccess: () -> Unit) {
 
     val context = LocalContext.current
     val auth = FirebaseAuth.getInstance()
+    val scope = rememberCoroutineScope()
 
     AuthLayout(headerImage = headerRobotImageUrl) {
         Text(
@@ -417,17 +728,31 @@ fun SignInScreen(onNavigateToSignUp: () -> Unit, onLoginSuccess: () -> Unit) {
                     Toast.makeText(context, "Please accept the Terms & Privacy policy", Toast.LENGTH_SHORT).show()
                     return@Button
                 }
+                if (isLoading) return@Button
                 isLoading = true
-                auth.signInWithEmailAndPassword(email.trim(), password)
-                    .addOnCompleteListener { task ->
-                        isLoading = false
-                        if (task.isSuccessful) {
-                            Toast.makeText(context, "Welcome back!", Toast.LENGTH_SHORT).show()
-                            onLoginSuccess()
-                        } else {
-                            Toast.makeText(context, "Error: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                scope.launch {
+                    try {
+                        // Do not leave the sign-in button spinning forever if the auth request stalls.
+                        withTimeout(20_000L) {
+                            auth.signInWithEmailAndPassword(email.trim(), password).await()
                         }
+                        Toast.makeText(context, "Welcome back!", Toast.LENGTH_SHORT).show()
+                        onLoginSuccess()
+                    } catch (e: TimeoutCancellationException) {
+                        Toast.makeText(
+                            context,
+                            "Sign-in timed out. Check your internet connection and try again.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } catch (e: Exception) {
+                        val errorMessage = e.localizedMessage
+                            ?.takeIf { it.isNotBlank() }
+                            ?: "Please check your connection and account details."
+                        Toast.makeText(context, "Sign-in failed: $errorMessage", Toast.LENGTH_LONG).show()
+                    } finally {
+                        isLoading = false
                     }
+                }
             },
             modifier = Modifier
                 .fillMaxWidth()
@@ -684,12 +1009,16 @@ fun EchoHomeScreen(
     onOpenChat: () -> Unit = {},
     onOpenGames: () -> Unit = {},
     onOpenLeaderboard: () -> Unit = {},
-    onOpenMedicines: () -> Unit = {}
+    onOpenMedicines: () -> Unit = {},
+    onOpenSettings: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var userName by remember { mutableStateOf("User") }
     var caretakerReminders by remember { mutableStateOf<List<CaretakerReminder>>(emptyList()) }
     var remindersLoadFailed by remember { mutableStateOf(false) }
+
+    // Completed caretaker reminders stay in Firebase, but are hidden from the checklist.
+    val pendingCaretakerReminders = caretakerReminders.filterNot { it.isChecked }
 
     val signedInUid = FirebaseAuth.getInstance().currentUser?.uid
 
@@ -821,7 +1150,7 @@ fun EchoHomeScreen(
 
                         HeaderIconButtonUrl(
                             imageUrl = "https://cdn-icons-png.magnific.com/256/771/771203.png?semt=ais_white_label",
-                            onClick = { Toast.makeText(context, "Settings Clicked", Toast.LENGTH_SHORT).show() }
+                            onClick = onOpenSettings
                         )
                     }
                 }
@@ -921,7 +1250,7 @@ fun EchoHomeScreen(
                                 modifier = Modifier
                                     .size(46.dp)
                                     .clip(RoundedCornerShape(15.dp))
-                                    .background(Color(0xFFFFC857)),
+                                    .background(Color(0xFF2F8F83)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -953,7 +1282,7 @@ fun EchoHomeScreen(
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Text(
-                                    text = "${caretakerReminders.count { !it.isChecked }} left",
+                                    text = "${pendingCaretakerReminders.size} left",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = Color(0xFFC8F1E8)
@@ -974,7 +1303,7 @@ fun EchoHomeScreen(
                                 color = Color(0xFFFFC7BE),
                                 fontSize = 13.sp
                             )
-                            caretakerReminders.isEmpty() -> Column(
+                            pendingCaretakerReminders.isEmpty() -> Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(16.dp))
@@ -995,7 +1324,7 @@ fun EchoHomeScreen(
                                     fontSize = 12.sp
                                 )
                             }
-                            else -> caretakerReminders.forEach { reminder ->
+                            else -> pendingCaretakerReminders.forEach { reminder ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1039,7 +1368,7 @@ fun EchoHomeScreen(
                                             color = if (reminder.isChecked) Color(0xFF9DB5B7) else Color(0xFFF7F3E8),
                                             textDecoration = if (reminder.isChecked) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
                                         )
-                                        if (reminder.description.isNotBlank() && reminder.description != reminder.title) {
+                                        if (reminder.description.isNotBlank() && reminder.description == reminder.title) {
                                             Spacer(modifier = Modifier.height(3.dp))
                                             Text(
                                                 text = reminder.description,
@@ -4478,6 +4807,26 @@ fun EchoMedicinesScreen(onBackClicked: () -> Unit) {
     val db = FirebaseFirestore.getInstance()
     val uid = auth.currentUser?.uid
     val medicines = remember { mutableStateListOf<EchoMedicine>() }
+    var userName by remember { mutableStateOf(auth.currentUser?.displayName.orEmpty()) }
+
+    // Match the name source used by the other screens: users/{uid}.fullName in Firestore.
+    LaunchedEffect(uid) {
+        if (uid != null) {
+            try {
+                val profile = db.collection("users").document(uid).get().await()
+                userName = profile.getString("fullName")
+                    ?.takeIf { it.isNotBlank() }
+                    ?: auth.currentUser?.displayName?.takeIf { it.isNotBlank() }
+                            ?: "User"
+            } catch (_: Exception) {
+                userName = auth.currentUser?.displayName
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "User"
+            }
+        } else {
+            userName = "User"
+        }
+    }
 
     var showAddForm by remember { mutableStateOf(false) }
     var medicineName by remember { mutableStateOf("") }
@@ -4592,7 +4941,7 @@ fun EchoMedicinesScreen(onBackClicked: () -> Unit) {
                     Column {
                         Text("Welcome back,", color = Color.White, fontSize = 12.sp)
                         Text(
-                            auth.currentUser?.displayName ?: "Mariana Napolitani",
+                            userName,
                             color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold
                         )
                     }
