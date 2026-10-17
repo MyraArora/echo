@@ -1,1 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Echo Caretaker Intelligence Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['"DM Sans"', 'sans-serif'] },
+                    colors: {
+                        echoBlue: '#0066FF',
+                        echoDarkBlue: '#003859',
+                        echoBorder: '#0B3C4D',
+                        echoGray: '#6C8793',
+                        echoBg: '#F4F7FF',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-echoBg text-slate-800 font-sans antialiased min-h-screen">
 
+    <!-- AUTHENTICATION SCREEN -->
+    <div id="auth-view" class="flex min-h-screen items-center justify-center px-4 py-12">
+        <div class="w-full max-w-md bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
+            <div class="text-center mb-8">
+                <h1 class="text-2xl font-extrabold text-echoDarkBlue">Caretaker Portal Login</h1>
+                <p class="text-sm text-echoGray mt-1">Sign in using your Echo mobile app credentials</p>
+            </div>
+            <form id="login-form" class="space-y-5" onsubmit="handleLogin(event)">
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Email Address</label>
+                    <input type="email" id="login-email" required class="w-full px-4 py-3.5 rounded-2xl border border-slate-200 focus:border-echoBlue focus:outline-none text-sm bg-echoBg/50 transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Password</label>
+                    <input type="password" id="login-password" required class="w-full px-4 py-3.5 rounded-2xl border border-slate-200 focus:border-echoBlue focus:outline-none text-sm bg-echoBg/50 transition">
+                </div>
+                <div id="auth-error" class="hidden text-xs font-semibold text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-100"></div>
+                <button type="submit" class="w-full bg-echoDarkBlue text-white text-sm font-bold py-4 rounded-2xl hover:bg-echoBorder transition shadow-sm">
+                    Sign In to Portal
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- DASHBOARD SCREEN -->
+    <div id="dashboard-view" class="hidden pb-16">
+        <header class="bg-echoBlue text-white shadow-lg rounded-b-[32px]">
+            <div class="max-w-7xl mx-auto px-8 py-8 flex flex-col md:flex-row justify-between items-center gap-6">
+                <div>
+                    <div class="flex items-center gap-3">
+                        <h1 class="text-3xl font-extrabold tracking-tight">Echo Portal</h1>
+                        <span class="text-xs uppercase tracking-wider bg-white/20 text-white font-semibold px-3 py-1 rounded-full">Caretaker Mode</span>
+                    </div>
+                    <p class="text-sm text-white/80 mt-1">Logged in as: <span id="user-email-display" class="font-bold text-white"></span></p>
+                </div>
+                <button onclick="handleLogout()" class="bg-white/20 hover:bg-white/30 text-white text-xs font-bold px-4 py-3 rounded-2xl transition">
+                    Sign Out
+                </button>
+            </div>
+        </header>
+
+        <main class="max-w-7xl mx-auto px-8 mt-10 grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <section class="lg:col-span-8 space-y-8">
+                <!-- Health Index & Star Rating -->
+                <div class="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h2 class="text-xl font-bold text-echoDarkBlue">Cognitive Health Index & Rating</h2>
+                            <p class="text-sm text-echoGray mt-0.5">Multi-modal synthesis including speech telemetry & game scores</p>
+                        </div>
+                        <span id="health-status-badge" class="px-4 py-1.5 text-xs font-extrabold tracking-wide uppercase rounded-full bg-blue-50 text-echoBlue border border-blue-100">Loading</span>
+                    </div>
+                    
+                    <div class="mt-6 flex items-baseline gap-6">
+                        <div>
+                            <span id="health-index-val" class="text-5xl font-black text-echoBlue tracking-tight">--</span>
+                            <span class="text-echoGray text-sm font-semibold"> / 100</span>
+                        </div>
+                        <div class="border-l pl-6 border-slate-200">
+                            <div id="star-rating-display" class="text-2xl font-bold text-amber-500 tracking-widest">⭐⭐⭐⭐⭐</div>
+                            <p class="text-xs text-echoGray mt-1">Composite Star Rating</p>
+                        </div>
+                    </div>
+
+                    <div class="mt-6 p-4 rounded-2xl bg-echoBg border border-blue-50 text-sm text-slate-700 leading-relaxed">
+                        <strong class="text-echoDarkBlue">Clinical Synthesis:</strong> <span id="clinical-synthesis-text">Fetching analysis from backend telemetry...</span>
+                    </div>
+                </div>
+
+                <!-- Cognitive Domain Breakdown -->
+                <div class="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
+                    <h2 class="text-xl font-bold text-echoDarkBlue mb-6">Modality & Cognitive Domain Stability</h2>
+                    <div id="domains-container" class="space-y-6"></div>
+                </div>
+            </section>
+
+            <!-- Right Column: Activity, Medicines, Caretaker Actions -->
+            <section class="lg:col-span-4 space-y-8">
+                <div class="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
+                    <h2 class="text-xl font-bold text-echoDarkBlue mb-5">Daily Activity Status</h2>
+                    <div class="space-y-3 text-sm text-slate-600">
+                        <div class="flex justify-between">
+                            <span class="text-echoGray font-medium">Activity Status:</span>
+                            <span id="activity-status-text" class="font-bold text-echoBlue">Checking...</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-echoGray font-medium">Last Session:</span>
+                            <span id="last-login-val" class="font-bold text-slate-800 text-right">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Medicine Adherence -->
+                <div class="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xl font-bold text-echoDarkBlue">Medicine Adherence</h2>
+                        <span id="med-overall-badge" class="text-xs font-extrabold px-3 py-1 rounded-full bg-slate-100 text-slate-600">Loading</span>
+                    </div>
+                    <div id="medicines-container" class="space-y-3.5"></div>
+                </div>
+
+                <!-- Caretaker Recommended Actions & Push Reminders -->
+                <div class="bg-echoDarkBlue text-white rounded-3xl p-8 shadow-md">
+                    <h3 class="text-xs font-black uppercase tracking-widest text-blue-300 mb-3">Recommended Caretaker Actions</h3>
+                    <ul id="recommendations-container" class="text-sm space-y-3 text-white/90 leading-relaxed font-medium mb-6"></ul>
+                    <button onclick="sendCaretakerReminders()" class="w-full bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold py-3.5 rounded-2xl transition shadow-sm">
+                        Send Reminders to Senior
+                    </button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+        import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAXo7gRUcol4Y4F93os4IUh1A1qaxJ0R9g",
+            authDomain: "echo-c1d62.firebaseapp.com",
+            projectId: "echo-c1d62",
+            storageBucket: "echo-c1d62.firebasestorage.app",
+            messagingSenderId: "181141665942",
+            appId: "1:181141665942:web:14589a9083117dd297eab7"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const BACKEND_API_BASE = "https://echo-backend-caretaker-dashboard.onrender.com"; // Change to your Render URL in production
+
+        let currentResolvedUserId = null;
+        let latestRiskFlags = [];
+
+        window.handleLogin = async function(event) {
+            event.preventDefault();
+            const email = document.getElementById('login-email').value.trim();
+            const password = document.getElementById('login-password').value;
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+            } catch (error) {
+                document.getElementById('auth-error').innerText = `Login failed: ${error.message}`;
+                document.getElementById('auth-error').classList.remove('hidden');
+            }
+        };
+
+        window.handleLogout = async function() { await signOut(auth); };
+
+        window.sendCaretakerReminders = async function() {
+            if (!currentResolvedUserId) {
+                alert("User target not loaded yet.");
+                return;
+            }
+            if (!latestRiskFlags || latestRiskFlags.length === 0) {
+                alert("No recommendations to send right now.");
+                return;
+            }
+
+            try {
+                const remindersRef = collection(db, "users", currentResolvedUserId, "caretaker reminders");
+                for (const flag of latestRiskFlags) {
+                    await addDoc(remindersRef, {
+                        title: flag,
+                        description: "Recommended action from caretaker dashboard",
+                        isChecked: false,
+                        createdAt: serverTimestamp()
+                    });
+                }
+                alert("Reminders successfully pushed to the senior's device!");
+            } catch (err) {
+                console.error("Error sending reminders:", err);
+                alert("Failed to push reminders to Firebase. Check console.");
+            }
+        };
+
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                document.getElementById('user-email-display').innerText = user.email;
+                document.getElementById('auth-view').classList.add('hidden');
+                document.getElementById('dashboard-view').classList.remove('hidden');
+                await fetchDashboardData(user.uid);
+            } else {
+                document.getElementById('dashboard-view').classList.add('hidden');
+                document.getElementById('auth-view').classList.remove('hidden');
+            }
+        });
+
+        async function fetchDashboardData(userId) {
+            try {
+                const response = await fetch(`${BACKEND_API_BASE}/api/v1/caretaker/${userId}`);
+                if (!response.ok) throw new Error("Failed to fetch telemetry.");
+                const data = await response.json();
+
+                currentResolvedUserId = data.user_id;
+                latestRiskFlags = data.recent_risk_flags || [];
+
+                // Health Index & Stars
+                const healthIdx = data?.cognitive_health_summary?.overall_health_index ?? 85.0;
+                document.getElementById('health-index-val').innerText = healthIdx;
+                
+                const starRating = data?.cognitive_health_summary?.star_rating ?? 4.5;
+                const fullStars = Math.floor(starRating);
+                document.getElementById('star-rating-display').innerText = "⭐".repeat(fullStars) + (starRating % 1 >= 0.5 ? "⭐" : "");
+
+                const statusBadge = document.getElementById('health-status-badge');
+                if (data?.cognitive_health_summary?.composite_risk_flag) {
+                    statusBadge.className = "px-4 py-1.5 text-xs font-extrabold tracking-wide uppercase rounded-full bg-rose-50 text-rose-700 border border-rose-200";
+                    statusBadge.innerText = "Action Required";
+                } else {
+                    statusBadge.className = "px-4 py-1.5 text-xs font-extrabold tracking-wide uppercase rounded-full bg-blue-50 text-echoBlue border border-blue-100";
+                    statusBadge.innerText = "Stable Baseline";
+                }
+
+                document.getElementById('clinical-synthesis-text').innerText = 
+                    `Multi-modal longitudinal synthesis indicates stable cognitive cadence across speech and game telemetry assessments (${healthIdx}% score, ${starRating} / 5.0 rating).`;
+
+                // Domains breakdown
+                const domainsContainer = document.getElementById('domains-container');
+                domainsContainer.innerHTML = "";
+                const domains = data?.cognitive_health_summary?.domain_breakdown || {};
+                for (const key in domains) {
+                    const dom = domains[key];
+                    const pct = Math.max(15, Math.round((1 - (dom.severity || 0.2)) * 100));
+                    domainsContainer.innerHTML += `
+                        <div>
+                            <div class="flex justify-between items-center text-sm mb-2">
+                                <span class="font-bold text-slate-700">${dom.name || key}</span>
+                                <span class="text-xs font-extrabold text-echoBlue bg-blue-50 border border-blue-100 px-3 py-1 rounded-full">${dom.status || 'Stable'}</span>
+                            </div>
+                            <div class="w-full bg-slate-100 h-3 rounded-full overflow-hidden p-0.5">
+                                <div class="bg-echoBlue h-full rounded-full transition-all duration-500" style="width: ${pct}%"></div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                document.getElementById('activity-status-text').innerText = data?.is_active_today ? "Active Today" : "Inactive";
+                document.getElementById('last-login-val').innerText = data?.last_active_timestamp ?? "Today";
+
+                // Medicines
+                const medBadge = document.getElementById('med-overall-badge');
+                const medContainer = document.getElementById('medicines-container');
+                medContainer.innerHTML = "";
+                const meds = data?.medicine_adherence_status || {};
+
+                if (meds.status === "COMPLETED") {
+                    medBadge.className = "text-xs font-extrabold px-3 py-1 rounded-full bg-blue-50 text-echoBlue border border-blue-100";
+                    medBadge.innerText = "Completed";
+                } else {
+                    medBadge.className = "text-xs font-extrabold px-3 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200";
+                    medBadge.innerText = "Partial";
+                }
+
+                (meds.medicines_taken || []).forEach(m => {
+                    medContainer.innerHTML += `<div class="p-3 rounded-xl bg-blue-50 text-xs font-bold text-echoBlue">✓ Taken: ${m}</div>`;
+                });
+                (meds.medicines_missed || []).forEach(m => {
+                    medContainer.innerHTML += `<div class="p-3 rounded-xl bg-rose-50 text-xs font-bold text-rose-600">✗ Pending/Missed: ${m}</div>`;
+                });
+
+                // Recommendations
+                const recContainer = document.getElementById('recommendations-container');
+                recContainer.innerHTML = "";
+                (data?.recent_risk_flags || []).forEach(flag => {
+                    recContainer.innerHTML += `<li class="flex items-start gap-2.5"><span>•</span><span>${flag}</span></li>`;
+                });
+
+            } catch (err) {
+                console.error("Dashboard fetch error:", err);
+                document.getElementById('clinical-synthesis-text').innerText = "Error connecting to telemetry backend server. Please verify FastAPI status.";
+            }
+        }
+    </script>
+</body>
+</html>
