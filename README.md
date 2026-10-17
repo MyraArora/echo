@@ -13,7 +13,6 @@ Echo combines everyday conversational interaction with audio processing and ling
 Cognitive changes can be difficult to recognize from a single interaction. Echo explores whether repeated speech and memory exercises, combined with longitudinal analysis, can help surface patterns that may otherwise go unnoticed.
 
 The project brings together an Android application, a Python backend, and a feature-extraction pipeline to analyze audio and transcript data across sessions.
-<img width="366" height="792" alt="image" src="https://github.com/user-attachments/assets/a83835da-d9cc-4453-912c-6ded422e3bbf" />
 
 
 ## Features
