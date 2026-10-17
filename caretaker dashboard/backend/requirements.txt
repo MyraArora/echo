@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+firebase-admin
+numpy
+pandas
+pydantic
+groq
+httpx
