@@ -14,6 +14,12 @@ Cognitive changes can be difficult to recognize from a single interaction. Echo 
 
 The project brings together an Android application, a Python backend, and a feature-extraction pipeline to analyze audio and transcript data across sessions.
 
+<img width="960" height="540" alt="I see it I like it I want it I got it (1)" src="https://github.com/user-attachments/assets/51cfdb9c-57c9-48c0-a882-6713f12d4be9" />
+<img width="960" height="540" alt="I see it I like it I want it I got it (2)" src="https://github.com/user-attachments/assets/6f21b811-7d96-4be2-89b4-43fa838b5f3a" />
+<img width="960" height="540" alt="I see it I like it I want it I got it (3)" src="https://github.com/user-attachments/assets/4cde3fa5-dce1-4862-b1c9-5b82426dd5d8" />
+<img width="960" height="540" alt="I see it I like it I want it I got it (4)" src="https://github.com/user-attachments/assets/d9eb513c-59a2-4633-ab69-015edbc52668" />
+
+
 
 ## Features
 
