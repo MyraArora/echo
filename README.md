@@ -197,8 +197,11 @@ Cloud Firestore
 
 Potential areas for further development include validating feature extraction against appropriate datasets, evaluating longitudinal trends, improving robustness across speakers, and studying how conversational design affects the quality of collected data.
 
-## Author
+## Recognitions
+
+Echo was the winner of the India AI Tinkerpreneur competition, by Intel & Niti Aayog (govt of India). The developers were invited to showcase my work at the  India-AI Impact Summit, the first-ever global AI summit hosted in the Global South, in front of various dignitaries & industry leaders.
+
+## Authors
 
 **Myra Arora, Kriday Moudgil**
 
-[GitHub Repository](https://github.com/MyraArora/echo)
