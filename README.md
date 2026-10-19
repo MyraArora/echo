@@ -1,17 +1,57 @@
 # Echo
 
-**A conversational cognitive monitoring app exploring how speech and language can help track changes in cognitive function over time.**
+Imagine this: you’re 75, retired, and living alone. The phone doesn’t ring as often. Friends move away. Days stretch endlessly with no one to talk to. You miss the small things, morning chats over tea, laughing at old jokes, or simply having someone remember your stories.
+This is not a rare occurrence, it’s a global health crisis:
+- nearly 1 in 3 seniors worldwide experiences chronic loneliness.
+- 40% of elderly people report feeling socially isolated, leading to higher rates of depression and anxiety.
+- Cognitive decline accelerates when the brain lacks stimulation, beginning years before dementia symptoms appear.
+- Alzheimer’s cases are expected to triple by 2050, with inactivity and isolation as major risk factors.
+Loneliness isn't merely an emotional issue; it shrinks key memory regions, accelerates neuronal loss, and shortens lifespans.
 
-Echo combines everyday conversational interaction with audio processing and linguistic analysis to explore patterns in speech, memory, and narrative coherence.
+**Echo explores how everyday conversation can become both an opportunity for cognitive engagement and a way to observe changes in speech and language over time.**
+
+Through an AI conversational companion, speech analysis, and supporting tools for everyday care, Echo aims to make cognitive engagement more accessible while helping caregivers gain a clearer picture of an older adult's well-being.
+
+## What Echo Does
+
+### Conversational AI and Speech Analysis
+
+Conversation is at the heart of Echo. Beyond responding to what a person says, Echo analyses features of their speech and language to explore patterns that may become more meaningful when observed over time.
+
+- **Acoustic analysis:** Examines characteristics such as pitch, pauses, and speech timing.
+- **Lexical and linguistic analysis:** Extracts features including vocabulary diversity, filler-word frequency, and sentence length.
+- **Narrative analysis:** Explores aspects of coherence, repetition, and how thoughts are expressed.
+- **Longitudinal tracking:** Stores session-level results to support comparisons across interactions.
+
+The goal is to explore whether everyday communication can offer useful signals of changes that might otherwise go unnoticed.
+
+### Cognitive Exercises
+
+Echo includes cognitive activities designed to encourage regular mental engagement across several domains. These exercises complement the conversational experience rather than replacing it.
+
+| Brain Region| Cognitive Domain | Example Activities |
+|---|---|---|
+| Hippocampus | Memory & learning | Story recall, memory games |
+| Prefrontal Cortex | Focus & decision-making | Logic puzzles, problem-solving tasks |
+| Temporal Lobe | Language & retrieval | Word games, conversation drills |
+| Parietal Lobe | Spatial & mathematical reasoning | Math challenges, visual puzzles |
+
+The aim is to make cognitive activities accessible and engaging as part of a broader everyday routine. These exercises are not a clinically validated treatment, and their inclusion does not establish that Echo can prevent or reverse cognitive decline.
+
+
+### Caregiver Dashboard
+
+The caregiver dashboard provides a way to review information from a user's sessions and follow their progress over time, helping connect individual interactions to a broader picture of their engagement and communication, and allowing caretakers to review their progress, medication intake & status.
+
+### Medication Reminders
+
+Medication reminders support everyday routines by helping users keep track of scheduled medications.
 
 > **Note:** Echo is an experimental project, not a clinically validated diagnostic tool. Its outputs should not be used to diagnose or rule out cognitive impairment.
 
 ---
 
-## Overview
-
-Cognitive changes can be difficult to recognize from a single interaction. Echo explores whether repeated speech and memory exercises, combined with longitudinal analysis, can help surface patterns that may otherwise go unnoticed.
-
+## Screenshots
 The project brings together an Android application, a Python backend, and a feature-extraction pipeline to analyze audio and transcript data across sessions.
 
 <img width="960" height="540" alt="I see it I like it I want it I got it (1)" src="https://github.com/user-attachments/assets/51cfdb9c-57c9-48c0-a882-6713f12d4be9" />
@@ -85,26 +125,10 @@ Cloud Firestore
 | Narrative analysis | Groq API, LLM-based analysis |
 | Language processing | spaCy |
 
-## Project Structure
-
-```text
-echo/
-├── app/                       # Android application
-│   └── src/main/
-│       └── java/com/example/echov2/
-├── backend/
-│   ├── main.py                # FastAPI application
-│   ├── requirements.txt       # Python dependencies
-│   └── app/pipeline/
-│       ├── audio_fetcher.py   # Audio retrieval
-│       ├── transcription.py   # Speech transcription
-│       ├── acoustic.py        # Acoustic feature extraction
-│       ├── syntax_lexical.py  # Linguistic feature extraction
-│       └── narrative.py      # Narrative analysis
-└── README.md
-```
 
 ## Getting Started
+
+#### For a quick test, download the APK file on an android device through https://drive.google.com/file/d/1mO8jtwOHAm8t3p0RkoGG9YRlNgprmb65/view?usp=sharing & log-in to the caretaker dashboard here https://echo-caretaker-dashboard.onrender.com/
 
 ### Prerequisites
 
