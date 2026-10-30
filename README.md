@@ -199,7 +199,7 @@ Potential areas for further development include validating feature extraction ag
 
 ## Recognitions
 
-Echo was the winner of the India AI Tinkerpreneur competition, by Intel & Niti Aayog (govt of India). The developers were invited to showcase my work at the  India-AI Impact Summit, the first-ever global AI summit hosted in the Global South, in front of various dignitaries & industry leaders.
+Echo was the winner of the India AI Tinkerpreneur competition, by Intel & NITI Aayog (govt of India). We were invited to showcase our work at the  India-AI Impact Summit, the first-ever global AI summit hosted in the Global South, in front of various dignitaries & industry leaders.
 
 ## Authors
 
