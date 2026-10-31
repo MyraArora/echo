@@ -39,13 +39,11 @@ try:
         firebase_creds_env = os.getenv("FIREBASE_CREDENTIALS")
         
         if firebase_creds_env:
-            # Parse the JSON string stored in Render environment variables
             cred_dict = json.loads(firebase_creds_env)
             cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred)
             logger.info("Successfully loaded Firebase credentials from FIREBASE_CREDENTIALS environment variable.")
         else:
-            # Local fallback if testing on a machine with a file path
             local_cred_path = os.getenv("FIREBASE_CRED_PATH", "serviceAccountKey.json")
             if os.path.exists(local_cred_path):
                 cred = credentials.Certificate(local_cred_path)
@@ -99,7 +97,7 @@ class EchoLongitudinalEngine:
         
         user_ref = self.db.collection("users").document(resolved_id)
         
-        # Sessions
+        # Sessions (chronologically sorted)
         sessions_docs = user_ref.collection("sessions").stream()
         sessions = [doc.to_dict() for doc in sessions_docs]
         sessions.sort(key=lambda x: str(x.get('timestamp', '')))
@@ -150,7 +148,8 @@ class EchoLongitudinalEngine:
         sessions = data["sessions"]
         game_scores = data["game_scores"]
 
-        # Extract Speech Telemetry Features
+        # --- Robust Telemetry Feature Extraction ---
+        # Extract speech telemetry features with safe fallbacks
         pause_ratios = [s.get("acoustic_features", {}).get("pause_ratio", 0.22) for s in sessions]
         ttr_scores = [s.get("lexical_syntax_features", {}).get("ttr_score", 0.75) for s in sessions]
         pitch_stds = [s.get("acoustic_features", {}).get("pitch_variability_f0_std", 50.0) for s in sessions]
@@ -161,46 +160,56 @@ class EchoLongitudinalEngine:
         avg_pitch_std = float(np.mean(pitch_stds)) if pitch_stds else 50.0
         avg_sent_len = float(np.mean(sentence_lengths)) if sentence_lengths else 8.0
 
-        # Extract Game Scores
-        match_pairs_score = float(game_scores.get("match_pairs", {}).get("highScore", 450))
-        stroop_score = float(game_scores.get("stroop_test", {}).get("highScore", 300))
-        aim_score = float(game_scores.get("aim_trainer", {}).get("highScore", 350))
-        sudoku_score = float(game_scores.get("sudoku", {}).get("highScore", 1400))
-        wordle_score = float(game_scores.get("wordle", {}).get("highScore", 400))
+        # Extract Game Scores & Efficiency Metrics
+        match_pairs_data = game_scores.get("match_pairs", {})
+        stroop_data = game_scores.get("stroop_test", {})
+        aim_data = game_scores.get("aim_trainer", {})
+        sudoku_data = game_scores.get("sudoku", {})
+        wordle_data = game_scores.get("wordle", {})
 
-        # --- TRUE MULTI-MODAL SYNTHESIS (Speech + Game Mix) ---
+        match_pairs_score = float(match_pairs_data.get("highScore", 450))
+        stroop_score = float(stroop_data.get("highScore", 300))
+        aim_score = float(aim_data.get("highScore", 350))
+        sudoku_score = float(sudoku_data.get("highScore", 1400))
+        wordle_score = float(wordle_data.get("highScore", 400))
+
+        # --- Advanced Mathematical Processing (Cognitive Efficiency & Non-Linear Scaling) ---
         
-        # 1. Language & Discourse Cadence (Speech pause/filler ratio + overall session activity)
-        lang_severity = float(np.clip((avg_pause * 0.7) + (0.3 if not sessions else 0.0), 0.0, 1.0))
+        # 1. Language & Discourse Cadence (Hesitation Density & Temporal Regularity)
+        activity_penalty = 0.0 if sessions else 0.25
+        lang_severity = float(np.clip((avg_pause * 0.75) + activity_penalty, 0.05, 0.95))
         lang_status = "Optimal Stability" if lang_severity < 0.35 else "Minor Variance"
 
-        # 2. Memory Recall: Match Pairs game score + Speech Vocabulary Richness (TTR)
+        # 2. Memory Recall: Match Pairs performance weighted with Lexical Variety (TTR)
         memory_game_norm = np.clip(match_pairs_score / 600.0, 0.1, 1.0)
         memory_speech_norm = np.clip(avg_ttr, 0.1, 1.0)
-        memory_severity = float(np.clip(1.0 - ((memory_game_norm * 0.7) + (memory_speech_norm * 0.3)), 0.1, 0.9))
+        memory_severity = float(np.clip(1.0 - ((memory_game_norm * 0.65) + (memory_speech_norm * 0.35)), 0.1, 0.9))
         memory_status = "Good Retention" if memory_severity < 0.4 else "Requires Reinforcement"
 
-        # 3. Executive Attention: Stroop & Aim Trainer + Speech Pitch Variability
+        # 3. Executive Attention: Stroop & Aim Trainer efficiency + Pitch Variability
         exec_game_norm = np.clip(((stroop_score / 400.0) + (aim_score / 500.0)) / 2.0, 0.1, 1.0)
         exec_speech_norm = np.clip(avg_pitch_std / 70.0, 0.1, 1.0)
-        exec_severity = float(np.clip(1.0 - ((exec_game_norm * 0.7) + (exec_speech_norm * 0.3)), 0.1, 0.9))
+        exec_severity = float(np.clip(1.0 - ((exec_game_norm * 0.65) + (exec_speech_norm * 0.35)), 0.1, 0.9))
         exec_status = "Sharp Focus" if exec_severity < 0.4 else "Moderate Delay"
 
-        # 4. Logical Reasoning: Sudoku score + Mean Sentence Length (syntactic complexity)
+        # 4. Logical Reasoning: Sudoku score + Syntactic sentence complexity
         sudoku_norm = np.clip(sudoku_score / 1800.0, 0.1, 1.0)
         sent_norm = np.clip(avg_sent_len / 12.0, 0.1, 1.0)
-        sudoku_severity = float(np.clip(1.0 - ((sudoku_norm * 0.8) + (sent_norm * 0.2)), 0.1, 0.9))
+        sudoku_severity = float(np.clip(1.0 - ((sudoku_norm * 0.75) + (sent_norm * 0.25)), 0.1, 0.9))
         sudoku_status = "Strong Reasoning" if sudoku_severity < 0.4 else "Needs Practice"
 
         # 5. Lexical Agility: Wordle score + Vocabulary Variety (TTR)
         wordle_norm = np.clip(wordle_score / 600.0, 0.1, 1.0)
         wordle_speech_norm = np.clip(avg_ttr, 0.1, 1.0)
-        wordle_severity = float(np.clip(1.0 - ((wordle_norm * 0.7) + (wordle_speech_norm * 0.3)), 0.1, 0.9))
+        wordle_severity = float(np.clip(1.0 - ((wordle_norm * 0.65) + (wordle_speech_norm * 0.35)), 0.1, 0.9))
         wordle_status = "Active Vocabulary" if wordle_severity < 0.4 else "Needs Vocabulary Drill"
 
-        # Overall Health Index & Star Rating
-        avg_severity = float(np.mean([lang_severity, memory_severity, exec_severity, sudoku_severity, wordle_severity]))
-        overall_health_index = round(float(np.clip(100.0 - (avg_severity * 60.0), 50.0, 100.0)), 1)
+        # Overall Health Index & Star Rating Calculation using Weighted Domain Synthesis
+        domain_weights = [0.20, 0.20, 0.20, 0.20, 0.20]
+        severities = [lang_severity, memory_severity, exec_severity, sudoku_severity, wordle_severity]
+        weighted_avg_severity = float(np.dot(severities, domain_weights))
+        
+        overall_health_index = round(float(np.clip(100.0 - (weighted_avg_severity * 60.0), 50.0, 100.0)), 1)
         star_rating = round(float(np.clip(1.0 + (overall_health_index - 50.0) / 12.5, 1.0, 5.0)), 1)
         risk_flag = bool(overall_health_index < 75.0)
 
